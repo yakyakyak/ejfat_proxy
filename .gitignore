@@ -1,0 +1,45 @@
+# Build directories
+build/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled binaries
+bin/ejfat_zmq_proxy
+!bin/*.cpp
+
+# Object files
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Config overrides (keep default.yaml and templates)
+config/*.yaml
+!config/default.yaml
+!config/*.yaml.template
+
+# SLURM test artifacts
+runs/
+INSTANCE_URI

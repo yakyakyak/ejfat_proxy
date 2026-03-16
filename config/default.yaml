@@ -1,0 +1,122 @@
+# EJFAT ZMQ Proxy Configuration v2.0
+
+ejfat:
+  # EJFAT URI for the load balancer (REQUIRED when use_cp=true)
+  # Format: ejfats://token@lb.es.net:443/lb/xyz?data=10.0.0.1&sync=10.0.0.1:19522
+  uri: "ejfats://example_token@lb.example.net:443/lb/session?data=192.168.1.100&sync=192.168.1.100:19522"
+
+  # Use control plane for load balancer communication
+  use_cp: true
+
+  # Worker name for identification in load balancer
+  worker_name: "zmq-proxy-1"
+
+  # Data port for receiving reassembled events
+  data_port: 10000
+
+  # Listen IP address (empty = auto-detect, or explicit IP like "127.0.0.1" for macOS)
+  data_ip: ""
+
+  # Expect LB headers (set to true for local testing without real LB)
+  with_lb_header: false
+
+  # Number of E2SAR receive threads
+  num_recv_threads: 1
+
+  # Event assembly timeout (milliseconds)
+  event_timeout_ms: 500
+
+  # UDP socket receive buffer size (bytes)
+  rcv_socket_buf_size: 3145728  # 3MB
+
+  # Validate TLS certificates
+  validate_cert: true
+
+  # Use IPv6 for dataplane
+  use_ipv6: false
+
+  # Scheduling parameters
+  scheduling:
+    # Worker priority weight
+    weight: 1.0
+    # Minimum slot allocation factor
+    min_factor: 0.5
+    # Maximum slot allocation factor
+    max_factor: 2.0
+
+zmq:
+  # ZMQ PUSH endpoint (where to send events)
+  # Examples:
+  #   - tcp://*:5555       (bind to all interfaces, port 5555)
+  #   - tcp://localhost:5555  (bind to localhost only)
+  #   - ipc:///tmp/proxy   (Unix domain socket)
+  push_endpoint: "tcp://*:5555"
+
+  # Send high-water mark (max queued messages before blocking)
+  # This is a key backpressure setting - when reached, ZMQ will block
+  send_hwm: 1000
+
+  # Number of I/O threads for ZMQ context
+  io_threads: 1
+
+  # Sleep duration when buffer is empty (microseconds)
+  poll_sleep_us: 100
+
+  # Socket linger time on close (milliseconds)
+  linger_ms: 0
+
+  # Send buffer size (0 = OS default)
+  sndbuf: 0
+
+backpressure:
+  # How often to send state updates to load balancer (milliseconds)
+  period_ms: 100
+
+  # Fill level threshold for marking worker as not-ready (0.5-1.0)
+  ready_threshold: 0.95
+
+  # Log state updates every N updates (0 = disable logging)
+  log_interval: 50
+
+  # Control signal range
+  control_min: 0.0
+  control_max: 1.0
+
+  # PID controller settings for computing control signal
+  pid:
+    # Target queue fill level (0.0 to 1.0)
+    # 0.5 = aim to keep buffer at 50% capacity
+    setpoint: 0.5
+
+    # Proportional gain (response to current error)
+    kp: 1.0
+
+    # Integral gain (response to accumulated error)
+    # Set to 0.0 to disable integral term
+    ki: 0.0
+
+    # Derivative gain (response to rate of change)
+    # Set to 0.0 to disable derivative term
+    kd: 0.0
+
+    # Anti-windup limit for integral term
+    integral_limit: 10.0
+
+buffer:
+  # Ring buffer size (number of events)
+  # Should be larger than zmq.send_hwm to absorb bursts
+  size: 2000
+
+  # Timeout for receiving events from E2SAR (milliseconds)
+  # Lower values improve responsiveness, higher values reduce CPU usage
+  recv_timeout_ms: 100
+
+logging:
+  # Logging verbosity (0=quiet, 1=normal, 2=verbose)
+  verbosity: 1
+
+  # Warn every N dropped events (0 = disable drop warnings)
+  drop_warn_interval: 1000
+
+  # Log progress every N received events (0 = disable progress logging)
+  progress_interval: 10000

@@ -1,0 +1,100 @@
+# EJFAT ZMQ Proxy Configuration for Perlmutter
+# This template uses environment variable substitution via envsubst
+
+ejfat:
+  # EJFAT URI from INSTANCE_URI (set by minimal_reserve.sh)
+  uri: "${EJFAT_URI}"
+
+  # Use control plane for load balancer communication
+  use_cp: true
+
+  # Worker name includes SLURM job ID for identification
+  worker_name: "zmq-proxy-${SLURM_JOB_ID:-0}"
+
+  # Data port for receiving reassembled events
+  data_port: ${DATA_PORT:-10000}
+
+  # Listen IP address (auto-detected by generate_config.sh)
+  data_ip: "${DATA_IP}"
+
+  # No LB header expected on Perlmutter (real EJFAT LB)
+  with_lb_header: false
+
+  # More threads for HPC environment
+  num_recv_threads: ${RECV_THREADS:-4}
+
+  # Event assembly timeout (milliseconds)
+  event_timeout_ms: 500
+
+  # Larger buffer for HPC networking
+  rcv_socket_buf_size: ${RCV_BUF_SIZE:-10485760}  # 10MB default
+
+  # Validate TLS certificates
+  validate_cert: ${VALIDATE_CERT:-true}
+
+  # Use IPv6 if specified
+  use_ipv6: ${USE_IPV6:-false}
+
+  # Scheduling parameters
+  scheduling:
+    weight: 1.0
+    min_factor: 0.5
+    max_factor: 2.0
+
+zmq:
+  # ZMQ PUSH endpoint - bind to all interfaces on specified port
+  push_endpoint: "tcp://*:${ZMQ_PORT:-5555}"
+
+  # Larger HWM for HPC throughput
+  send_hwm: ${ZMQ_HWM:-10000}
+
+  # More I/O threads for HPC
+  io_threads: ${ZMQ_IO_THREADS:-2}
+
+  # Faster polling for low latency
+  poll_sleep_us: ${POLL_SLEEP:-50}
+
+  # Socket linger time on close (milliseconds)
+  linger_ms: 0
+
+  # Larger send buffer for HPC
+  sndbuf: ${ZMQ_SNDBUF:-2097152}  # 2MB default
+
+backpressure:
+  # Faster updates for HPC
+  period_ms: ${BP_PERIOD:-50}
+
+  # Threshold for marking worker as not-ready
+  ready_threshold: ${BP_THRESHOLD:-0.95}
+
+  # Log state updates every N updates
+  log_interval: ${BP_LOG_INTERVAL:-100}
+
+  # Control signal range
+  control_min: 0.0
+  control_max: 1.0
+
+  # PID controller settings
+  pid:
+    setpoint: ${PID_SETPOINT:-0.5}
+    kp: ${PID_KP:-1.0}
+    ki: ${PID_KI:-0.0}
+    kd: ${PID_KD:-0.0}
+    integral_limit: 10.0
+
+buffer:
+  # Larger ring buffer for HPC
+  size: ${BUFFER_SIZE:-20000}
+
+  # Timeout for receiving events from E2SAR (milliseconds)
+  recv_timeout_ms: ${RECV_TIMEOUT:-100}
+
+logging:
+  # Verbose logging for testing
+  verbosity: ${LOG_VERBOSITY:-2}
+
+  # Warn every N dropped events
+  drop_warn_interval: 1000
+
+  # Log progress every N received events
+  progress_interval: ${PROGRESS_INTERVAL:-10000}
