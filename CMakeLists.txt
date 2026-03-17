@@ -11,13 +11,14 @@ add_compile_options(-Wall -Wextra -Wpedantic)
 # Find dependencies
 find_package(PkgConfig REQUIRED)
 
-# Use freshly built E2SAR (both library and headers)
-set(E2SAR_INCLUDE_DIRS
-    "/Users/yak/Projects/E2SAR/include"
-    "/Users/yak/Projects/E2SAR/build/src"
-    "/Users/yak/Projects/E2SAR/build/src/grpc")  # For generated protobuf headers
-set(E2SAR_LIBRARY_DIRS "/Users/yak/Projects/E2SAR/build/src")
-set(E2SAR_LIBRARIES "/Users/yak/Projects/E2SAR/build/src/libe2sar.a")
+# E2SAR installation (default: /usr/local as installed by ibaldin/e2sar container)
+set(E2SAR_ROOT "/usr/local" CACHE PATH "E2SAR installation prefix")
+set(E2SAR_INCLUDE_DIRS "${E2SAR_ROOT}/include")
+set(E2SAR_LIBRARY_DIRS "${E2SAR_ROOT}/lib")
+find_library(E2SAR_LIB_PATH NAMES e2sar
+    PATHS "${E2SAR_ROOT}/lib" "${E2SAR_ROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}"
+    NO_DEFAULT_PATH REQUIRED)
+set(E2SAR_LIBRARIES "${E2SAR_LIB_PATH}")
 
 pkg_check_modules(YAMLCPP REQUIRED yaml-cpp)
 pkg_check_modules(LIBZMQ REQUIRED libzmq)
@@ -27,18 +28,10 @@ pkg_check_modules(PROTOBUF REQUIRED protobuf)
 pkg_check_modules(ABSL_LOG REQUIRED absl_log)
 pkg_check_modules(ABSL_LOG_INTERNAL REQUIRED absl_log_internal_message)
 
-# Use Boost from e2sar-dev conda environment (matches E2SAR build)
-set(BOOST_ROOT "/opt/anaconda3/envs/e2sar-dev")
-set(Boost_NO_SYSTEM_PATHS ON)
-find_package(Boost 1.89 REQUIRED COMPONENTS thread chrono program_options url log filesystem)
+find_package(Boost 1.74 REQUIRED COMPONENTS thread chrono program_options url log filesystem)
 
-# Override protobuf to use conda version (matches E2SAR)
-set(Protobuf_INCLUDE_DIR "/opt/anaconda3/envs/e2sar-dev/include")
-set(Protobuf_LIBRARY "/opt/anaconda3/envs/e2sar-dev/lib/libprotobuf.dylib")
-
-# Include directories (conda protobuf FIRST to override Homebrew)
+# Include directories
 include_directories(
-    /opt/anaconda3/envs/e2sar-dev/include
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}
     ${E2SAR_INCLUDE_DIRS}

@@ -11,6 +11,7 @@ set(SOURCES
 add_library(ejfat_zmq_proxy_lib STATIC ${SOURCES})
 
 target_link_libraries(ejfat_zmq_proxy_lib
+    ${E2SAR_LIBRARIES}
     ${Boost_LIBRARIES}
     ${LIBZMQ_LIBRARIES}
     ${YAMLCPP_LIBRARIES}
@@ -18,7 +19,6 @@ target_link_libraries(ejfat_zmq_proxy_lib
     ${PROTOBUF_LIBRARIES}
     ${ABSL_LOG_LIBRARIES}
     ${ABSL_LOG_INTERNAL_LIBRARIES}
-    ${E2SAR_LIBRARIES}
 )
 
 target_include_directories(ejfat_zmq_proxy_lib PUBLIC
