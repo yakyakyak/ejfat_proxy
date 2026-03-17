@@ -130,17 +130,27 @@ Successful output starts with `EJFAT ZMQ Proxy Options:`.
 
 ## Perlmutter: Publishing to Compute Nodes
 
-After a successful build, migrate the image so all compute nodes can use it via `podman-hpc`:
+**CRITICAL: `podman` and `podman-hpc` use separate image stores.**
+
+`podman-hpc migrate` only works on images already in the `podman-hpc` store — it cannot see images built with plain `podman build`. The fix is to build with `podman-hpc build` from the start:
+
+```bash
+podman-hpc build -t ejfat-zmq-proxy:latest .
+```
+
+This places the image in the hpc store and makes it immediately migratable.
+
+Then migrate so all compute nodes can use it:
 
 ```bash
 podman-hpc migrate ejfat-zmq-proxy:latest
 ```
 
-**What this does:** converts the local podman image into a squashfs file that is bind-mounted read-only on compute nodes when `podman-hpc run` is called with that image name.
+**What migrate does:** converts the image into a squashfs file that is bind-mounted read-only on compute nodes when `podman-hpc run` is called with that image name.
 
 Verify the migration succeeded:
 ```bash
 podman-hpc images
 ```
 
-The image must be re-migrated after every `podman build`.
+The image must be rebuilt with `podman-hpc build` and re-migrated after every change.
