@@ -125,3 +125,22 @@ podman run --rm ejfat-zmq-proxy:latest \
 ```
 
 Successful output starts with `EJFAT ZMQ Proxy Options:`.
+
+---
+
+## Perlmutter: Publishing to Compute Nodes
+
+After a successful build, migrate the image so all compute nodes can use it via `podman-hpc`:
+
+```bash
+podman-hpc migrate ejfat-zmq-proxy:latest
+```
+
+**What this does:** converts the local podman image into a squashfs file that is bind-mounted read-only on compute nodes when `podman-hpc run` is called with that image name.
+
+Verify the migration succeeded:
+```bash
+podman-hpc images
+```
+
+The image must be re-migrated after every `podman build`.

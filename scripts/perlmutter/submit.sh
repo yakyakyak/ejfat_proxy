@@ -76,6 +76,10 @@ while [[ $# -gt 0 ]]; do
             SENDER_ARGS+=("$1" "$2")
             shift 2
             ;;
+        --count|--size)
+            SENDER_ARGS+=("$1" "$2")
+            shift 2
+            ;;
         *)
             echo "ERROR: Unknown option: $1"
             echo "Use --help for usage information"
@@ -91,8 +95,8 @@ if [[ -z "$ACCOUNT" ]]; then
     exit 1
 fi
 
-if [[ "$TEST_TYPE" != "normal" && "$TEST_TYPE" != "backpressure" ]]; then
-    echo "ERROR: --test-type must be 'normal' or 'backpressure'"
+if [[ "$TEST_TYPE" != "normal" && "$TEST_TYPE" != "backpressure" && "$TEST_TYPE" != "pipeline" ]]; then
+    echo "ERROR: --test-type must be 'normal', 'backpressure', or 'pipeline'"
     exit 1
 fi
 
@@ -147,8 +151,9 @@ fi
 # Select test script
 if [[ "$TEST_TYPE" == "backpressure" ]]; then
     TEST_SCRIPT="$SCRIPT_DIR/perlmutter_backpressure_test.sh"
-    # Add consumer delay to sender args
     SENDER_ARGS+=("--consumer-delay" "$CONSUMER_DELAY")
+elif [[ "$TEST_TYPE" == "pipeline" ]]; then
+    TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test.sh"
 else
     TEST_SCRIPT="$SCRIPT_DIR/perlmutter_proxy_test.sh"
 fi

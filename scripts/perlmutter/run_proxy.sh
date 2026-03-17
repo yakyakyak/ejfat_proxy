@@ -7,11 +7,14 @@
 # Requires:
 #   - SLURM_SUBMIT_DIR environment variable (set by SLURM)
 #   - INSTANCE_URI file in current directory
-#   - Proxy binary at $SLURM_SUBMIT_DIR/build/bin/ejfat_zmq_proxy
+#   - Container image ejfat-zmq-proxy:latest migrated via: podman-hpc migrate ejfat-zmq-proxy:latest
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+PROXY_IMAGE="${PROXY_IMAGE:-ejfat-zmq-proxy:latest}"
+PROXY_BIN="/build/ejfat_zmq_proxy/build/bin/ejfat_zmq_proxy"
 
 echo "========================================="
 echo "EJFAT ZMQ Proxy Startup"
@@ -30,27 +33,19 @@ if [[ ! -f perlmutter_config.yaml ]]; then
 fi
 
 echo ""
-
-# Locate proxy binary
-PROXY_BIN="${SLURM_SUBMIT_DIR}/build/bin/ejfat_zmq_proxy"
-
-if [[ ! -x "$PROXY_BIN" ]]; then
-    echo "ERROR: Proxy binary not found or not executable: $PROXY_BIN"
-    echo "Build the proxy first on the login node:"
-    echo "  cd $SLURM_SUBMIT_DIR/build"
-    echo "  cmake .. && make -j8"
-    exit 1
-fi
-
-echo "Proxy binary: $PROXY_BIN"
-echo "Config: perlmutter_config.yaml"
+echo "Proxy image: $PROXY_IMAGE"
+echo "Config: $(pwd)/perlmutter_config.yaml"
 echo ""
 
-# Run proxy with config, tee output to log
+# Run proxy inside container, bind-mounting current dir (JOB_DIR) read-only for config access.
+# stdout/stderr are captured by tee on the host — no write access needed inside the container.
 echo "Starting proxy..."
 echo ""
 
-"$PROXY_BIN" -c perlmutter_config.yaml 2>&1 | tee proxy.log
+podman-hpc run --rm --network host \
+    -v "$(pwd):/job:ro" \
+    "$PROXY_IMAGE" \
+    "$PROXY_BIN" -c /job/perlmutter_config.yaml 2>&1 | tee proxy.log
 
 # Capture exit code
 EXIT_CODE=${PIPESTATUS[0]}
