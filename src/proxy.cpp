@@ -1,6 +1,7 @@
 #include "ejfat_zmq_proxy/proxy.hpp"
 #include <iostream>
 #include <iomanip>
+#include <stdexcept>
 
 namespace ejfat_zmq_proxy {
 
@@ -93,6 +94,14 @@ void EjfatZmqProxy::start() {
 
     std::cout << "\nStarting proxy components..." << std::endl;
 
+    // Open E2SAR reassembler sockets and start its receive threads
+    auto open_result = reassembler_->openAndStart();
+    if (open_result.has_error()) {
+        throw std::runtime_error("Failed to open E2SAR reassembler: " +
+                                 open_result.error().message());
+    }
+    std::cout << "  E2SAR reassembler started (UDP sockets open)" << std::endl;
+
     // Start ZMQ sender
     sender_->start(buffer_);
 
@@ -150,12 +159,12 @@ void EjfatZmqProxy::receiverThread() {
             continue;
         }
 
-        if (result.value() == 0) {
-            // Timeout (no event available)
+        if (result.value() != 0) {
+            // Timeout or queue empty (-1), no event available
             continue;
         }
 
-        // Successfully received event
+        // Successfully received event (value == 0 means success in E2SAR API)
         events_received_.fetch_add(1);
 
         // Create event and push to ring buffer
