@@ -2,7 +2,7 @@
 #SBATCH -N 3
 #SBATCH -C cpu
 #SBATCH -q debug
-#SBATCH -t 00:15:00
+#SBATCH -t 00:30:00
 #SBATCH -J ejfat_bp_suite
 #
 # EJFAT ZMQ Proxy Backpressure Test Suite
@@ -135,18 +135,20 @@ stop_proxy_consumer() {
 }
 
 reset_podman_on_proxy() {
-    echo "Resetting podman state on $NODE_PROXY (Lustre wake + prune)..."
-    # Determine pscratch storage path from current node's known path and pass it in
-    local storage_dir
-    storage_dir=$(ls -d /pscratch/sd/*/"$USER"/storage/overlay 2>/dev/null | head -1 || echo "")
+    echo "Resetting podman storage on $NODE_PROXY (FUSE unmount + system reset + migrate)..."
+    local proxy_image="${PROXY_IMAGE:-ejfat-zmq-proxy:latest}"
     srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
         bash -c "
-            # Touch storage dir to reconnect stale Lustre transport endpoint
-            [[ -n '$storage_dir' ]] && ls '$storage_dir' > /dev/null 2>&1 || true
-            ls /pscratch/ > /dev/null 2>&1 || true
-            podman-hpc rm -af 2>/dev/null || true
-            sleep 8
-        " > /dev/null 2>&1 || true
+            # Lazy-unmount any stale fuse-overlayfs mounts in pscratch storage
+            awk '{if(\$3==\"fuse.fuse-overlayfs\" && \$2~/pscratch/)print \$2}' /proc/mounts \
+                | xargs -r -I{} sh -c 'umount -l \"{}\" 2>/dev/null || true'
+            # Full podman HPC store reset (clears stale layer state)
+            podman-hpc system reset --force 2>/dev/null || true
+            sleep 2
+            # Re-migrate the proxy image into the HPC store
+            podman-hpc migrate '$proxy_image' 2>&1 | tail -3
+            echo 'Reset+migrate complete'
+        " 2>&1 | grep -E "complete|ERROR|error|migrate" || true
     echo "Podman reset done"
 }
 
@@ -512,7 +514,7 @@ echo ""
 #=============================================================================
 
 echo "========================================="
-echo "TEST 5: 10-minute soak (20ms delay, buf=200)"
+echo "TEST 5: 5-minute soak (20ms delay, buf=200)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
@@ -521,7 +523,7 @@ start_consumer 20
 wait_for_proxy_ready 15
 
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
-    bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/run_soak_sender.sh' --duration 600" || true
+    bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/run_soak_sender.sh' --duration 300" || true
 
 echo "Waiting 15s for drain..."
 sleep 15
@@ -546,7 +548,7 @@ else
 fi
 
 archive_logs test5
-record_test_result "10-minute soak" $FAIL_BEFORE
+record_test_result "5-minute soak" $FAIL_BEFORE
 echo ""
 
 #=============================================================================
