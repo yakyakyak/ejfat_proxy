@@ -135,20 +135,19 @@ stop_proxy_consumer() {
 }
 
 reset_podman_on_proxy() {
-    echo "Resetting podman storage on $NODE_PROXY (FUSE unmount + system reset + migrate)..."
-    local proxy_image="${PROXY_IMAGE:-ejfat-zmq-proxy:latest}"
+    echo "Resetting podman state on $NODE_PROXY (lazy-unmount stale FUSE mounts)..."
     srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
         bash -c "
-            # Lazy-unmount any stale fuse-overlayfs mounts in pscratch storage
+            # Lazy-unmount stale fuse-overlayfs layer mounts from pscratch.
+            # These become 'transport endpoint not connected' after a container exits
+            # because the FUSE daemon is gone but the mount is still registered.
             awk '{if(\$3==\"fuse.fuse-overlayfs\" && \$2~/pscratch/)print \$2}' /proc/mounts \
-                | xargs -r -I{} sh -c 'umount -l \"{}\" 2>/dev/null || true'
-            # Full podman HPC store reset (clears stale layer state)
-            podman-hpc system reset --force 2>/dev/null || true
-            sleep 2
-            # Re-migrate the proxy image into the HPC store
-            podman-hpc migrate '$proxy_image' 2>&1 | tail -3
-            echo 'Reset+migrate complete'
-        " 2>&1 | grep -E "complete|ERROR|error|migrate" || true
+                | xargs -r umount -l 2>/dev/null || true
+            # Remove any leftover stopped containers
+            podman-hpc rm -af 2>/dev/null || true
+            sleep 5
+            echo 'FUSE unmount done'
+        " 2>&1 | grep -v '^$' || true
     echo "Podman reset done"
 }
 
