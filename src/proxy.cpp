@@ -102,6 +102,35 @@ void EjfatZmqProxy::start() {
     }
     std::cout << "  E2SAR reassembler started (UDP sockets open)" << std::endl;
 
+    // Register this worker with the LB so it receives data.
+    // Must happen before sendState (which requires the session token set by registration).
+    // Use the explicit data_ip from config (same IP the reassembler is bound to).
+    if (lb_manager_) {
+        auto data_ip = boost::asio::ip::make_address(config_.ejfat.data_ip);
+        auto node_ip_port = std::make_pair(data_ip,
+                                           static_cast<uint16_t>(config_.ejfat.data_port));
+        auto reg_result = lb_manager_->registerWorker(
+            config_.ejfat.worker_name,
+            node_ip_port,
+            config_.ejfat.scheduling.weight,
+            1,  // source_count: one logical sender
+            config_.ejfat.scheduling.min_factor,
+            config_.ejfat.scheduling.max_factor,
+            false  // keep_lb_header: LB strips its header before forwarding to us
+        );
+        if (reg_result.has_error()) {
+            throw std::runtime_error("Failed to register worker with LB: " +
+                                     reg_result.error().message());
+        }
+        if (reg_result.value() != 0) {
+            throw std::runtime_error("registerWorker returned non-zero: " +
+                                     std::to_string(reg_result.value()));
+        }
+        std::cout << "  Worker registered with LB: " << config_.ejfat.worker_name
+                  << " at " << config_.ejfat.data_ip << ":" << config_.ejfat.data_port
+                  << std::endl;
+    }
+
     // Start ZMQ sender
     sender_->start(buffer_);
 
@@ -123,6 +152,17 @@ void EjfatZmqProxy::stop() {
 
     std::cout << "\nStopping proxy components..." << std::endl;
 
+    // Deregister from LB before stopping
+    if (lb_manager_) {
+        auto dereg = lb_manager_->deregisterWorker();
+        if (dereg.has_error()) {
+            std::cerr << "WARNING: Failed to deregister worker: "
+                      << dereg.error().message() << std::endl;
+        } else {
+            std::cout << "  Worker deregistered from LB" << std::endl;
+        }
+    }
+
     // Stop all components
     monitor_->stop();
     sender_->stop();
@@ -134,6 +174,15 @@ void EjfatZmqProxy::join() {
     }
     monitor_->join();
     sender_->join();
+
+    // Print E2SAR reassembler stats to diagnose data flow
+    auto stats = reassembler_->getStats();
+    std::cout << "\n=== E2SAR Reassembler Stats ===" << std::endl;
+    std::cout << "Events successfully reassembled: " << stats.eventSuccess << std::endl;
+    std::cout << "Events lost (enqueue full):      " << stats.enqueueLoss << std::endl;
+    std::cout << "Events lost (reassembly loss):   " << stats.reassemblyLoss << std::endl;
+    std::cout << "Data errors:                     " << stats.dataErrCnt << std::endl;
+    std::cout << "================================" << std::endl;
 }
 
 void EjfatZmqProxy::receiverThread() {
@@ -145,30 +194,47 @@ void EjfatZmqProxy::receiverThread() {
     uint16_t data_id = 0;
 
     while (running_.load()) {
-        // Receive event from E2SAR reassembler
-        auto result = reassembler_->recvEvent(
+        // Use getEvent (non-blocking) rather than recvEvent to avoid ambiguous
+        // return semantics on timeout. getEvent returns value()=0 on success
+        // and value()=-1 when the queue is empty.
+        auto result = reassembler_->getEvent(
             &event_data,
             &event_bytes,
             &event_num,
-            &data_id,
-            config_.buffer.recv_timeout_ms
+            &data_id
         );
 
         if (!result) {
-            // Error or timeout occurred
+            // Reassembler error
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(config_.buffer.recv_timeout_ms));
             continue;
         }
 
         if (result.value() != 0) {
-            // Timeout or queue empty (-1), no event available
+            // Queue empty (-1): brief sleep then retry
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 
-        // Successfully received event (value == 0 means success in E2SAR API)
+        // Successfully received event.
+        // E2SAR allocates event_data; free it after copying.
+        if (event_bytes == 0 || event_data == nullptr) {
+            delete[] event_data;
+            event_data = nullptr;
+            event_bytes = 0;
+            std::cerr << "WARNING: recvEvent returned 0-byte event, skipping" << std::endl;
+            continue;
+        }
+
         events_received_.fetch_add(1);
 
-        // Create event and push to ring buffer
+        // Create event (copies payload) and push to ring buffer.
+        // E2SAR allocates event_data; free it after copying.
         Event event(event_data, event_bytes, event_num, data_id);
+        delete[] event_data;
+        event_data = nullptr;
+        event_bytes = 0;
 
         if (!buffer_->push(std::move(event))) {
             // Buffer full, drop event
@@ -207,6 +273,12 @@ void EjfatZmqProxy::printStats() const {
               << monitor_->getLastFillPercent() << "%" << std::endl;
     std::cout << "Last control:     " << std::fixed << std::setprecision(3)
               << monitor_->getLastControlSignal() << std::endl;
+    // E2SAR reassembler stats — key for diagnosing data receipt
+    auto rs = reassembler_->getStats();
+    std::cout << "E2SAR reassembled:" << rs.eventSuccess
+              << " enqLoss:" << rs.enqueueLoss
+              << " reassemLoss:" << rs.reassemblyLoss
+              << " dataErr:" << rs.dataErrCnt << std::endl;
     std::cout << "========================" << std::endl;
 }
 

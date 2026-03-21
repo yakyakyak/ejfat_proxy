@@ -12,6 +12,7 @@
 
 #include "e2sar.hpp"
 #include "e2sarDPSegmenter.hpp"
+#include "e2sarCP.hpp"
 #include <zmq.hpp>
 #include <boost/program_options.hpp>
 #include <iostream>
@@ -47,7 +48,9 @@ int main(int argc, char* argv[]) {
         ("rcvhwm",   po::value<int>()->default_value(10000),
                      "ZMQ receive HWM")
         ("stats-interval", po::value<int>()->default_value(10),
-                     "Stats print interval in seconds (0=disable)");
+                     "Stats print interval in seconds (0=disable)")
+        ("sender-ip", po::value<std::string>()->default_value(""),
+                     "Explicit sender IP to register with LB CP (default: auto-detect via addSenderSelf)");
 
     po::variables_map vm;
     try {
@@ -69,6 +72,32 @@ int main(int argc, char* argv[]) {
     // Parse EJFAT URI (instance token — reservation already made)
     e2sar::EjfatURI uri(vm["uri"].as<std::string>(),
                         e2sar::EjfatURI::TokenType::instance);
+
+    // Register this node as a sender with the LB control plane.
+    // The LB's data plane only routes traffic from registered senders.
+    // Use explicit sender-ip (same IP used for UDP sending) to avoid
+    // addSenderSelf() registering the management IP instead of the HSN IP.
+    {
+        e2sar::LBManager lb_mgr(uri, false, false);  // validateServer=false, useHostAddress=false
+        const std::string sender_ip = vm["sender-ip"].as<std::string>();
+        if (sender_ip.empty()) {
+            auto reg = lb_mgr.addSenderSelf(false);  // false = IPv4
+            if (reg.has_error()) {
+                std::cerr << "WARNING: addSenderSelf failed: " << reg.error().message()
+                          << " (proceeding anyway)" << std::endl;
+            } else {
+                std::cout << "Registered as sender with LB CP (auto-detected IP)" << std::endl;
+            }
+        } else {
+            auto reg = lb_mgr.addSenders(std::vector<std::string>{sender_ip});
+            if (reg.has_error()) {
+                std::cerr << "WARNING: addSenders(" << sender_ip << ") failed: "
+                          << reg.error().message() << " (proceeding anyway)" << std::endl;
+            } else {
+                std::cout << "Registered as sender with LB CP: " << sender_ip << std::endl;
+            }
+        }
+    }
 
     // Configure Segmenter
     e2sar::Segmenter::SegmenterFlags sflags;
@@ -104,6 +133,7 @@ int main(int argc, char* argv[]) {
     std::cout << "  Src ID       : " << vm["src-id"].as<uint32_t>()  << std::endl;
     std::cout << "  MTU          : " << vm["mtu"].as<uint16_t>()     << std::endl;
     std::cout << "  Sockets      : " << vm["sockets"].as<int>()      << std::endl;
+    std::cout << "  Outgoing intf: " << segmenter.getIntf()          << std::endl;
     std::cout << std::endl;
 
     uint64_t events_received = 0;
@@ -123,9 +153,15 @@ int main(int argc, char* argv[]) {
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     now - last_stats).count();
                 if (elapsed >= stats_interval) {
+                    auto ss = segmenter.getSendStats();
+                    auto sy = segmenter.getSyncStats();
                     std::cout << "Events: recv=" << events_received
                               << " sent=" << events_sent
-                              << " dropped=" << events_dropped << std::endl;
+                              << " dropped=" << events_dropped
+                              << " | seg_frags=" << ss.msgCnt
+                              << " seg_errs=" << ss.errCnt
+                              << " | sync_pkts=" << sy.msgCnt
+                              << " sync_errs=" << sy.errCnt << std::endl;
                     last_stats = now;
                 }
             }

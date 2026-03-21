@@ -72,7 +72,7 @@ echo "Proxy node: $PROXY_NODE"
 echo "ZMQ endpoint: $ZMQ_ENDPOINT"
 
 # Build command
-CMD=(python3 "$RECEIVER_SCRIPT" --endpoint "$ZMQ_ENDPOINT")
+CMD=(python3 -u "$RECEIVER_SCRIPT" --endpoint "$ZMQ_ENDPOINT" --stats-interval 1)
 
 if [[ -n "$DELAY" ]]; then
     CMD+=(--delay "$DELAY")

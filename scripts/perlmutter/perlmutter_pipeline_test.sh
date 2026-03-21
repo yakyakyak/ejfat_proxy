@@ -273,8 +273,7 @@ echo "Waiting ${DRAIN_TIME}s for pipeline to drain..."
 sleep $DRAIN_TIME
 
 echo "Waiting for validator process to finish..."
-wait "$VALIDATOR_PID" || true
-VALIDATOR_EXIT=${PIPESTATUS[0]:-$?}
+wait "$VALIDATOR_PID" && VALIDATOR_EXIT=0 || VALIDATOR_EXIT=$?
 VALIDATOR_PID=""
 
 echo "Validator exited (exit code: $VALIDATOR_EXIT)"

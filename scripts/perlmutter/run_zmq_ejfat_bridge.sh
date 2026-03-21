@@ -54,6 +54,13 @@ fi
 ZMQ_ENDPOINT="tcp://${SENDER_NODE}:${SENDER_ZMQ_PORT}"
 echo "ZMQ PULL   : $ZMQ_ENDPOINT"
 echo "Image      : $PROXY_IMAGE"
+
+# Auto-detect sender IP (HSN IP used for UDP sending) so the LB CP
+# registers the same IP the Segmenter will actually send from.
+LB_HOST=$(echo "$EJFAT_URI" | sed 's|.*@\([^:]*\):.*|\1|')
+LB_IP=$(getent ahostsv4 "$LB_HOST" 2>/dev/null | head -1 | awk '{print $1}')
+SENDER_IP=$(ip route get "$LB_IP" 2>/dev/null | head -1 | sed 's/^.*src//' | awk '{print $1}')
+echo "Sender IP  : ${SENDER_IP:-<auto>}"
 echo ""
 
 echo "Starting bridge..."
@@ -70,6 +77,7 @@ podman-hpc run --rm --network host \
         --src-id 2 \
         --mtu 9000 \
         --sockets 16 \
+        ${SENDER_IP:+--sender-ip "$SENDER_IP"} \
     2>&1 | tee bridge.log
 
 EXIT_CODE=${PIPESTATUS[0]}

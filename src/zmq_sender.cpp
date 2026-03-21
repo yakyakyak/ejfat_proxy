@@ -71,16 +71,16 @@ void ZmqSender::run() {
         // Prepare ZMQ message
         zmq::message_t msg(event.data.data(), event.data.size());
 
-        // Try to send with DONTWAIT to detect backpressure
+        // Try non-blocking send to detect backpressure.
+        // On EAGAIN (!result.has_value()), msg is intact and we retry blocking.
+        // On success (result.has_value()), msg is consumed by ZMQ — do NOT send again.
         try {
             auto result = socket_->send(msg, zmq::send_flags::dontwait);
             total_sends_.fetch_add(1);
 
-            if (!result.has_value() || result.value() == 0) {
-                // Send would block (HWM reached)
+            if (!result.has_value()) {
+                // Send would block (HWM reached) — msg is intact, retry blocking
                 blocked_sends_.fetch_add(1);
-
-                // Now send with blocking to ensure delivery
                 socket_->send(msg, zmq::send_flags::none);
             }
         } catch (const zmq::error_t& e) {

@@ -45,7 +45,7 @@ echo "ZMQ PULL endpoint: $ZMQ_ENDPOINT"
 echo "Validator args: ${VALIDATOR_ARGS[*]:-<defaults>}"
 echo ""
 
-python3 "$VALIDATOR_SCRIPT" \
+python3 -u "$VALIDATOR_SCRIPT" \
     --endpoint "$ZMQ_ENDPOINT" \
     "${VALIDATOR_ARGS[@]}" \
     2>&1 | tee validator.log
