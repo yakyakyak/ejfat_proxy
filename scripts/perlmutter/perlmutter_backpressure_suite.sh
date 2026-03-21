@@ -135,20 +135,29 @@ stop_proxy_consumer() {
 }
 
 reset_podman_on_proxy() {
-    echo "Resetting podman state on $NODE_PROXY (lazy-unmount stale FUSE mounts)..."
+    local known_layer="de335e965dc41e5ecdb853694af0b941b15b8fb885a9758a6dc26cfd6326dabb"
+    local storage="/pscratch/sd/y/yak/storage/overlay"
+    echo "=== Podman Reset Diagnostics on $NODE_PROXY ==="
     srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
         bash -c "
-            # Lazy-unmount stale fuse-overlayfs layer mounts from pscratch.
-            # These become 'transport endpoint not connected' after a container exits
-            # because the FUSE daemon is gone but the mount is still registered.
-            awk '{if(\$3==\"fuse.fuse-overlayfs\" && \$2~/pscratch/)print \$2}' /proc/mounts \
+            echo '-- /proc/mounts (pscratch or fuse entries) --'
+            grep -E '(pscratch|fuse|overlay)' /proc/mounts 2>/dev/null || echo none
+            echo '-- stat known layer diff --'
+            stat '${storage}/${known_layer}/diff' 2>&1
+            echo '-- umount -l known layer diff --'
+            umount -l '${storage}/${known_layer}/diff' 2>&1 || true
+            echo '-- umount all pscratch/fuse/overlay entries from /proc/mounts --'
+            grep -E '(pscratch|fuse.fuse-overlayfs)' /proc/mounts | awk '{print \$2}' \
                 | xargs -r umount -l 2>/dev/null || true
-            # Remove any leftover stopped containers
+            echo '-- stat after umount --'
+            stat '${storage}/${known_layer}/diff' 2>&1
+            echo '-- ls storage dir --'
+            ls '${storage}/' 2>&1 | head -5
             podman-hpc rm -af 2>/dev/null || true
             sleep 5
-            echo 'FUSE unmount done'
-        " 2>&1 | grep -v '^$' || true
-    echo "Podman reset done"
+            echo '-- reset complete --'
+        " 2>&1 || true
+    echo "=== Reset Done ==="
 }
 
 start_proxy() {
