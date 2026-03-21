@@ -88,6 +88,8 @@ for test_num in $(seq 1 "$NUM_TESTS"); do
     wait "$PROXY_PID" 2>/dev/null || true
 
     echo "Coordinator: proxy stopped for test $test_num"
+    # Brief pause for port release before next test
+    sleep 3
     # Signal done
     echo "done" > "$JOB_DIR/proxy_done_${test_num}"
 

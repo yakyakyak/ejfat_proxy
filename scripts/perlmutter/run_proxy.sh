@@ -42,13 +42,26 @@ echo ""
 echo "Starting proxy..."
 echo ""
 
+# Run podman in background so we can trap SIGTERM and forward it.
+# Using a pipeline (podman | tee) loses the ability to signal podman directly,
+# so we run podman in the background, tee its output, and forward signals.
+PODMAN_PID=""
+cleanup_podman() {
+    if [[ -n "$PODMAN_PID" ]]; then
+        echo "run_proxy.sh: forwarding SIGTERM to podman (PID $PODMAN_PID)..."
+        kill -TERM "$PODMAN_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup_podman TERM INT
+
 podman-hpc run --rm --network host \
     -v "$(pwd):/job:ro" \
     "$PROXY_IMAGE" \
-    "$PROXY_BIN" -c /job/perlmutter_config.yaml 2>&1 | tee proxy.log
+    "$PROXY_BIN" -c /job/perlmutter_config.yaml > proxy.log 2>&1 &
+PODMAN_PID=$!
 
-# Capture exit code
-EXIT_CODE=${PIPESTATUS[0]}
+wait "$PODMAN_PID"
+EXIT_CODE=$?
 
 echo ""
 echo "Proxy exited with code: $EXIT_CODE"
