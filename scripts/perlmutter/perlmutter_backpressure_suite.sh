@@ -126,10 +126,17 @@ stop_proxy_consumer() {
     CONSUMER_PID=""
 }
 
+reset_podman_on_proxy() {
+    echo "Resetting podman state on $NODE_PROXY..."
+    srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
+        bash -c "podman-hpc rm -af 2>/dev/null; podman-hpc system prune -f 2>/dev/null; sleep 2" \
+        > /dev/null 2>&1 || true
+}
+
 start_proxy() {
     local buf_size="$1"
     echo "Starting proxy (BUFFER_SIZE=$buf_size) on $NODE_PROXY..."
-    BUFFER_SIZE="$buf_size" srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
+    srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
         bash -c "cd '$JOB_DIR' && BUFFER_SIZE='$buf_size' '$SCRIPT_DIR/run_proxy.sh'" \
         > proxy_wrapper.log 2>&1 &
     PROXY_PID=$!
@@ -383,6 +390,7 @@ assert_no_crash
 
 archive_logs test1
 record_test_result "Baseline (no backpressure)" $FAIL_BEFORE
+reset_podman_on_proxy
 echo ""
 
 #=============================================================================
@@ -415,6 +423,7 @@ assert_no_crash
 
 archive_logs test2
 record_test_result "Mild backpressure" $FAIL_BEFORE
+reset_podman_on_proxy
 echo ""
 
 #=============================================================================
@@ -447,6 +456,7 @@ assert_no_crash
 
 archive_logs test3
 record_test_result "Heavy backpressure" $FAIL_BEFORE
+reset_podman_on_proxy
 echo ""
 
 #=============================================================================
@@ -477,6 +487,7 @@ assert_no_crash
 
 archive_logs test4
 record_test_result "Small-event stress" $FAIL_BEFORE
+reset_podman_on_proxy
 echo ""
 
 #=============================================================================

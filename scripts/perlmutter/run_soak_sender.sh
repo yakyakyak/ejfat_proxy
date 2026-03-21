@@ -41,7 +41,7 @@ while [[ $(date +%s) -lt $END_TIME ]]; do
     REMAINING=$(( END_TIME - $(date +%s) ))
     echo "--- Soak batch $BATCH (${REMAINING}s remaining) ---"
 
-    "$SCRIPT_DIR/minimal_sender.sh" "${PASSTHROUGH_ARGS[@]:-}" 2>&1 || true
+    "$SCRIPT_DIR/minimal_sender.sh" ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"} 2>&1 || true
 
     TOTAL_EVENTS=$(( TOTAL_EVENTS + ${NUM:-100} ))
     echo "Batch $BATCH complete. Total events sent so far: ~$TOTAL_EVENTS"
