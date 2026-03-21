@@ -43,3 +43,4 @@ config/*.yaml
 # SLURM test artifacts
 runs/
 INSTANCE_URI
+slurm-*.out
