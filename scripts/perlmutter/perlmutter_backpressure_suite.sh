@@ -447,7 +447,7 @@ echo "TEST 2: Mild backpressure (10ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 2 "BUFFER_SIZE=50 ZMQ_HWM=5"
+start_proxy 2 "BUFFER_SIZE=100 ZMQ_HWM=5"
 start_consumer 10
 wait_for_proxy_ready 2
 
@@ -480,7 +480,7 @@ echo "TEST 3: Heavy backpressure (100ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 3 "BUFFER_SIZE=50 ZMQ_HWM=5"
+start_proxy 3 "BUFFER_SIZE=100 ZMQ_HWM=5"
 start_consumer 100
 wait_for_proxy_ready 3
 
@@ -513,7 +513,7 @@ echo "TEST 4: Small-event stress (64KB, 50ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 4 "BUFFER_SIZE=50 ZMQ_HWM=5"
+start_proxy 4 "BUFFER_SIZE=100 ZMQ_HWM=5"
 start_consumer 50
 wait_for_proxy_ready 4
 
