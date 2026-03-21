@@ -74,8 +74,9 @@ export PROXY_NODE="$NODE_PROXY"
 # Global state
 #=============================================================================
 
-PROXY_PID=""
+COORDINATOR_PID=""
 CONSUMER_PID=""
+CURRENT_TEST=0
 SUITE_PASS=0
 SUITE_FAIL=0
 declare -a TEST_RESULTS=()
@@ -92,7 +93,20 @@ cleanup() {
 
     echo ""
     echo "--- Cleanup ---"
-    stop_proxy_consumer
+    # Stop current test if running
+    if [[ "$CURRENT_TEST" -gt 0 ]]; then
+        touch "$JOB_DIR/proxy_stop_${CURRENT_TEST}" 2>/dev/null || true
+    fi
+    if [[ -n "$CONSUMER_PID" ]]; then
+        kill -TERM "$CONSUMER_PID" 2>/dev/null || true
+        sleep 2
+        kill -9 "$CONSUMER_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$COORDINATOR_PID" ]]; then
+        kill -TERM "$COORDINATOR_PID" 2>/dev/null || true
+        sleep 5
+        kill -9 "$COORDINATOR_PID" 2>/dev/null || true
+    fi
 
     if [[ -f "$JOB_DIR/INSTANCE_URI" ]]; then
         cd "$JOB_DIR"
@@ -106,75 +120,61 @@ trap cleanup EXIT INT TERM
 # Helpers
 #=============================================================================
 
-stop_proxy_consumer() {
-    if [[ -n "$PROXY_PID" ]]; then
-        kill -TERM "$PROXY_PID" 2>/dev/null || true
-    fi
-    if [[ -n "$CONSUMER_PID" ]]; then
-        kill -TERM "$CONSUMER_PID" 2>/dev/null || true
-    fi
-    # Wait up to 30s for graceful shutdown so podman can cleanly unmount overlay
-    local i
-    for i in $(seq 1 30); do
-        local all_done=true
-        [[ -n "$PROXY_PID" ]] && kill -0 "$PROXY_PID" 2>/dev/null && all_done=false
-        [[ -n "$CONSUMER_PID" ]] && kill -0 "$CONSUMER_PID" 2>/dev/null && all_done=false
-        if [[ "$all_done" == "true" ]]; then
-            echo "[$(date -u '+%H:%M:%S')] Processes exited after ${i}s"
-            break
-        fi
-        sleep 1
-    done
-    if [[ -n "$PROXY_PID" ]]; then
-        kill -9 "$PROXY_PID" 2>/dev/null || true
-        wait "$PROXY_PID" 2>/dev/null || true
-    fi
-    if [[ -n "$CONSUMER_PID" ]]; then
-        kill -9 "$CONSUMER_PID" 2>/dev/null || true
-        wait "$CONSUMER_PID" 2>/dev/null || true
-    fi
-    # Extra wait for podman background cleanup to finish
-    sleep 10
-    PROXY_PID=""
-    CONSUMER_PID=""
-}
-
-reset_podman_on_proxy() {
-    local known_layer="de335e965dc41e5ecdb853694af0b941b15b8fb885a9758a6dc26cfd6326dabb"
-    local storage="/pscratch/sd/y/yak/storage/overlay"
-    echo "=== Podman Reset Diagnostics on $NODE_PROXY ==="
+start_coordinator() {
+    echo "Starting proxy coordinator (single srun step) on $NODE_PROXY..."
     srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
-        bash -c "
-            echo '-- /proc/mounts (pscratch or fuse entries) --'
-            grep -E '(pscratch|fuse|overlay)' /proc/mounts 2>/dev/null || echo none
-            echo '-- stat known layer diff --'
-            stat '${storage}/${known_layer}/diff' 2>&1
-            echo '-- umount -l known layer diff --'
-            umount -l '${storage}/${known_layer}/diff' 2>&1 || true
-            echo '-- umount all pscratch/fuse/overlay entries from /proc/mounts --'
-            grep -E '(pscratch|fuse.fuse-overlayfs)' /proc/mounts | awk '{print \$2}' \
-                | xargs -r umount -l 2>/dev/null || true
-            echo '-- stat after umount --'
-            stat '${storage}/${known_layer}/diff' 2>&1
-            echo '-- ls storage dir --'
-            ls '${storage}/' 2>&1 | head -5
-            podman-hpc rm -af 2>/dev/null || true
-            echo '-- test podman-hpc run --'
-            podman-hpc run --rm ejfat-zmq-proxy:latest echo "storage-ok" 2>&1 | head -3
-            echo "-- podman test exit: ${PIPESTATUS[0]} --"
-            echo '-- reset complete --'
-        " 2>&1 || true
-    echo "=== Reset Done ==="
+        bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/proxy_coordinator.sh' '$JOB_DIR' '$SCRIPT_DIR' 5" \
+        > coordinator.log 2>&1 &
+    COORDINATOR_PID=$!
+    echo "Coordinator PID: $COORDINATOR_PID"
+    sleep 2
+    if ! kill -0 "$COORDINATOR_PID" 2>/dev/null; then
+        echo "ERROR: Coordinator failed to start"
+        cat coordinator.log || true
+        return 1
+    fi
 }
 
 start_proxy() {
-    local buf_size="$1"
-    echo "Starting proxy (BUFFER_SIZE=$buf_size) on $NODE_PROXY..."
-    srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
-        bash -c "cd '$JOB_DIR' && BUFFER_SIZE='$buf_size' '$SCRIPT_DIR/run_proxy.sh'" \
-        > proxy_wrapper.log 2>&1 &
-    PROXY_PID=$!
-    echo "Proxy PID: $PROXY_PID"
+    local test_num="$1"
+    local buf_size="$2"
+    CURRENT_TEST="$test_num"
+    echo "Signaling coordinator: start test $test_num (BUFFER_SIZE=$buf_size)..."
+    rm -f "proxy_go_${test_num}" "proxy_ready_${test_num}" "proxy_done_${test_num}" \
+          "proxy_stop_${test_num}" proxy.log proxy_wrapper.log
+    echo "$buf_size" > "proxy_go_${test_num}"
+}
+
+wait_for_proxy_ready() {
+    local test_num="$1"
+    echo "Waiting for coordinator to signal proxy_ready_${test_num}..."
+    local i
+    for i in $(seq 1 60); do
+        [[ -f "proxy_ready_${test_num}" ]] && break
+        if ! kill -0 "$COORDINATOR_PID" 2>/dev/null; then
+            echo "ERROR: Coordinator died"
+            return 1
+        fi
+        sleep 1
+    done
+    if [[ ! -f "proxy_ready_${test_num}" ]]; then
+        echo "ERROR: Proxy never became ready for test $test_num"
+        return 1
+    fi
+    echo "Proxy ready for test $test_num"
+}
+
+stop_proxy() {
+    local test_num="$1"
+    echo "Signaling coordinator: stop test $test_num..."
+    touch "proxy_stop_${test_num}"
+    local i
+    for i in $(seq 1 30); do
+        [[ -f "proxy_done_${test_num}" ]] && break
+        sleep 1
+    done
+    [[ -f "proxy_done_${test_num}" ]] && echo "Proxy stopped for test $test_num" \
+        || echo "WARNING: proxy_done_${test_num} not received"
 }
 
 start_consumer() {
@@ -187,22 +187,25 @@ start_consumer() {
     echo "Consumer PID: $CONSUMER_PID"
 }
 
-wait_for_proxy_ready() {
-    local secs="${1:-15}"
-    echo "Waiting ${secs}s for proxy registration..."
-    sleep "$secs"
-    if ! kill -0 "$PROXY_PID" 2>/dev/null; then
-        echo "ERROR: Proxy died during startup"
-        return 1
+stop_consumer() {
+    if [[ -n "$CONSUMER_PID" ]]; then
+        kill -TERM "$CONSUMER_PID" 2>/dev/null || true
+        sleep 3
+        kill -9 "$CONSUMER_PID" 2>/dev/null || true
+        wait "$CONSUMER_PID" 2>/dev/null || true
+        CONSUMER_PID=""
     fi
-    echo "Proxy is running"
 }
 
 archive_logs() {
     local prefix="$1"
-    for f in proxy.log consumer.log minimal_sender.log proxy_wrapper.log consumer_wrapper.log; do
+    # proxy logs are already archived by coordinator; copy consumer/sender logs
+    for f in consumer.log minimal_sender.log consumer_wrapper.log; do
         [[ -f "$f" ]] && mv "$f" "${prefix}_${f}" || true
     done
+    # proxy logs copied by coordinator
+    [[ -f "${prefix}_proxy.log" ]] || \
+        { [[ -f "proxy.log" ]] && cp "proxy.log" "${prefix}_proxy.log"; } || true
     echo "Logs archived as ${prefix}_*"
 }
 
@@ -396,6 +399,13 @@ echo "Reservation ready"
 echo ""
 
 #=============================================================================
+# Start proxy coordinator (ONE srun step for all proxy tests)
+#=============================================================================
+
+echo "Starting proxy coordinator..."
+start_coordinator
+
+#=============================================================================
 # TEST 1: Baseline — no backpressure (fast consumer, large buffer)
 #=============================================================================
 
@@ -404,9 +414,9 @@ echo "TEST 1: Baseline (no backpressure)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 20000
+start_proxy 1 20000
 start_consumer 0
-wait_for_proxy_ready 15
+wait_for_proxy_ready 1
 
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
     bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/minimal_sender.sh'" || true
@@ -414,17 +424,17 @@ srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
 echo "Waiting 10s for drain..."
 sleep 10
 
-stop_proxy_consumer
+stop_proxy 1
+stop_consumer
 
 echo "Assertions:"
-assert_no_backpressure
-assert_fill_stayed_low 10
+assert_no_backpressure test1_proxy.log
+assert_fill_stayed_low 10 test1_proxy.log
 assert_events_received 90 100
-assert_no_crash
+assert_no_crash test1_proxy.log
 
 archive_logs test1
 record_test_result "Baseline (no backpressure)" $FAIL_BEFORE
-reset_podman_on_proxy
 echo ""
 
 #=============================================================================
@@ -436,9 +446,9 @@ echo "TEST 2: Mild backpressure (10ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 50
+start_proxy 2 50
 start_consumer 10
-wait_for_proxy_ready 15
+wait_for_proxy_ready 2
 
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
     bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/minimal_sender.sh'" || true
@@ -446,18 +456,18 @@ srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
 echo "Waiting 15s for drain..."
 sleep 15
 
-stop_proxy_consumer
+stop_proxy 2
+stop_consumer
 
 echo "Assertions:"
-assert_backpressure_triggered
-assert_backpressure_recovered
-assert_fill_peaked 20
+assert_backpressure_triggered test2_proxy.log
+assert_backpressure_recovered test2_proxy.log
+assert_fill_peaked 20 test2_proxy.log
 assert_events_received 70
-assert_no_crash
+assert_no_crash test2_proxy.log
 
 archive_logs test2
 record_test_result "Mild backpressure" $FAIL_BEFORE
-reset_podman_on_proxy
 echo ""
 
 #=============================================================================
@@ -469,9 +479,9 @@ echo "TEST 3: Heavy backpressure (100ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 50
+start_proxy 3 50
 start_consumer 100
-wait_for_proxy_ready 15
+wait_for_proxy_ready 3
 
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
     bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/minimal_sender.sh'" || true
@@ -479,18 +489,18 @@ srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
 echo "Waiting 20s for drain..."
 sleep 20
 
-stop_proxy_consumer
+stop_proxy 3
+stop_consumer
 
 echo "Assertions:"
-assert_backpressure_triggered
-assert_sustained_bp 3
-assert_fill_peaked 80
-assert_control_peaked 0.5
-assert_no_crash
+assert_backpressure_triggered test3_proxy.log
+assert_sustained_bp 3 test3_proxy.log
+assert_fill_peaked 80 test3_proxy.log
+assert_control_peaked 0.5 test3_proxy.log
+assert_no_crash test3_proxy.log
 
 archive_logs test3
 record_test_result "Heavy backpressure" $FAIL_BEFORE
-reset_podman_on_proxy
 echo ""
 
 #=============================================================================
@@ -502,9 +512,9 @@ echo "TEST 4: Small-event stress (64KB, 50ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 50
+start_proxy 4 50
 start_consumer 50
-wait_for_proxy_ready 15
+wait_for_proxy_ready 4
 
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
     bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/minimal_sender.sh' --length 65536" || true
@@ -512,20 +522,20 @@ srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
 echo "Waiting 15s for drain..."
 sleep 15
 
-stop_proxy_consumer
+stop_proxy 4
+stop_consumer
 
 echo "Assertions:"
-assert_backpressure_triggered
-assert_fill_peaked 20
-assert_no_crash
+assert_backpressure_triggered test4_proxy.log
+assert_fill_peaked 20 test4_proxy.log
+assert_no_crash test4_proxy.log
 
 archive_logs test4
 record_test_result "Small-event stress" $FAIL_BEFORE
-reset_podman_on_proxy
 echo ""
 
 #=============================================================================
-# TEST 5: 10-minute soak (20ms delay, buf=200, looping sender)
+# TEST 5: 5-minute soak (20ms delay, buf=200, looping sender)
 #=============================================================================
 
 echo "========================================="
@@ -533,9 +543,9 @@ echo "TEST 5: 5-minute soak (20ms delay, buf=200)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 200
+start_proxy 5 200
 start_consumer 20
-wait_for_proxy_ready 15
+wait_for_proxy_ready 5
 
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
     bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/run_soak_sender.sh' --duration 300" || true
@@ -543,28 +553,33 @@ srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
 echo "Waiting 15s for drain..."
 sleep 15
 
-# Check proxy is still alive
+# Check coordinator still alive (= proxy was alive throughout)
 PROXY_ALIVE=false
-if [[ -n "$PROXY_PID" ]] && kill -0 "$PROXY_PID" 2>/dev/null; then
-    PROXY_ALIVE=true
-fi
+kill -0 "$COORDINATOR_PID" 2>/dev/null && PROXY_ALIVE=true
 
-stop_proxy_consumer
+stop_proxy 5
+stop_consumer
 
 echo "Assertions:"
-assert_backpressure_triggered
-assert_backpressure_recovered
-assert_no_crash
+assert_backpressure_triggered test5_proxy.log
+assert_backpressure_recovered test5_proxy.log
+assert_no_crash test5_proxy.log
 
 if [[ "$PROXY_ALIVE" == "true" ]]; then
-    assert_pass "proxy-alive-at-end"
+    assert_pass "coordinator-alive-at-end"
 else
-    assert_fail "proxy-alive-at-end" "proxy process not running at drain time"
+    assert_fail "coordinator-alive-at-end" "coordinator not running at drain time"
 fi
 
 archive_logs test5
 record_test_result "5-minute soak" $FAIL_BEFORE
 echo ""
+
+# Stop coordinator
+if [[ -n "$COORDINATOR_PID" ]]; then
+    kill -TERM "$COORDINATOR_PID" 2>/dev/null || true
+    wait "$COORDINATOR_PID" 2>/dev/null || true
+fi
 
 #=============================================================================
 # Suite summary
