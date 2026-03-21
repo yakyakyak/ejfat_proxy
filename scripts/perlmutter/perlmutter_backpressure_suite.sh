@@ -113,7 +113,15 @@ stop_proxy_consumer() {
     if [[ -n "$CONSUMER_PID" ]]; then
         kill -TERM "$CONSUMER_PID" 2>/dev/null || true
     fi
-    sleep 2
+    # Wait up to 15s for graceful shutdown so podman can cleanly unmount overlay
+    local i
+    for i in $(seq 1 15); do
+        local all_done=true
+        [[ -n "$PROXY_PID" ]] && kill -0 "$PROXY_PID" 2>/dev/null && all_done=false
+        [[ -n "$CONSUMER_PID" ]] && kill -0 "$CONSUMER_PID" 2>/dev/null && all_done=false
+        [[ "$all_done" == "true" ]] && break
+        sleep 1
+    done
     if [[ -n "$PROXY_PID" ]]; then
         kill -9 "$PROXY_PID" 2>/dev/null || true
         wait "$PROXY_PID" 2>/dev/null || true
@@ -127,10 +135,19 @@ stop_proxy_consumer() {
 }
 
 reset_podman_on_proxy() {
-    echo "Resetting podman state on $NODE_PROXY..."
+    echo "Resetting podman state on $NODE_PROXY (Lustre wake + prune)..."
+    # Determine pscratch storage path from current node's known path and pass it in
+    local storage_dir
+    storage_dir=$(ls -d /pscratch/sd/*/"$USER"/storage/overlay 2>/dev/null | head -1 || echo "")
     srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
-        bash -c "podman-hpc rm -af 2>/dev/null; podman-hpc system prune -f 2>/dev/null; sleep 2" \
-        > /dev/null 2>&1 || true
+        bash -c "
+            # Touch storage dir to reconnect stale Lustre transport endpoint
+            [[ -n '$storage_dir' ]] && ls '$storage_dir' > /dev/null 2>&1 || true
+            ls /pscratch/ > /dev/null 2>&1 || true
+            podman-hpc rm -af 2>/dev/null || true
+            sleep 8
+        " > /dev/null 2>&1 || true
+    echo "Podman reset done"
 }
 
 start_proxy() {
