@@ -113,13 +113,16 @@ stop_proxy_consumer() {
     if [[ -n "$CONSUMER_PID" ]]; then
         kill -TERM "$CONSUMER_PID" 2>/dev/null || true
     fi
-    # Wait up to 15s for graceful shutdown so podman can cleanly unmount overlay
+    # Wait up to 30s for graceful shutdown so podman can cleanly unmount overlay
     local i
-    for i in $(seq 1 15); do
+    for i in $(seq 1 30); do
         local all_done=true
         [[ -n "$PROXY_PID" ]] && kill -0 "$PROXY_PID" 2>/dev/null && all_done=false
         [[ -n "$CONSUMER_PID" ]] && kill -0 "$CONSUMER_PID" 2>/dev/null && all_done=false
-        [[ "$all_done" == "true" ]] && break
+        if [[ "$all_done" == "true" ]]; then
+            echo "[$(date -u '+%H:%M:%S')] Processes exited after ${i}s"
+            break
+        fi
         sleep 1
     done
     if [[ -n "$PROXY_PID" ]]; then
@@ -130,6 +133,8 @@ stop_proxy_consumer() {
         kill -9 "$CONSUMER_PID" 2>/dev/null || true
         wait "$CONSUMER_PID" 2>/dev/null || true
     fi
+    # Extra wait for podman background cleanup to finish
+    sleep 10
     PROXY_PID=""
     CONSUMER_PID=""
 }
@@ -154,7 +159,9 @@ reset_podman_on_proxy() {
             echo '-- ls storage dir --'
             ls '${storage}/' 2>&1 | head -5
             podman-hpc rm -af 2>/dev/null || true
-            sleep 5
+            echo '-- test podman-hpc run --'
+            podman-hpc run --rm ejfat-zmq-proxy:latest echo "storage-ok" 2>&1 | head -3
+            echo "-- podman test exit: ${PIPESTATUS[0]} --"
             echo '-- reset complete --'
         " 2>&1 || true
     echo "=== Reset Done ==="
