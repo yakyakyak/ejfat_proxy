@@ -7,7 +7,7 @@
 # Options:
 #   --account ACC         SLURM account (required)
 #   --pre-reserve         Reserve LB before submitting job
-#   --test-type TYPE      Test type: normal (default) or backpressure
+#   --test-type TYPE      Test type: normal (default), backpressure, pipeline, or backpressure-suite
 #   --consumer-delay MS   Consumer delay for backpressure test (default: 10)
 #   --help                Show this help
 #
@@ -95,8 +95,9 @@ if [[ -z "$ACCOUNT" ]]; then
     exit 1
 fi
 
-if [[ "$TEST_TYPE" != "normal" && "$TEST_TYPE" != "backpressure" && "$TEST_TYPE" != "pipeline" ]]; then
-    echo "ERROR: --test-type must be 'normal', 'backpressure', or 'pipeline'"
+if [[ "$TEST_TYPE" != "normal" && "$TEST_TYPE" != "backpressure" && \
+      "$TEST_TYPE" != "pipeline" && "$TEST_TYPE" != "backpressure-suite" ]]; then
+    echo "ERROR: --test-type must be 'normal', 'backpressure', 'pipeline', or 'backpressure-suite'"
     exit 1
 fi
 
@@ -115,6 +116,8 @@ echo "Account: $ACCOUNT"
 echo "Test type: $TEST_TYPE"
 if [[ "$TEST_TYPE" == "backpressure" ]]; then
     echo "Consumer delay: ${CONSUMER_DELAY}ms"
+elif [[ "$TEST_TYPE" == "backpressure-suite" ]]; then
+    echo "Running all 5 backpressure scenarios (15 min)"
 fi
 echo "SBATCH options: ${SBATCH_OPTS[*]:-<defaults>}"
 echo "Sender arguments: ${SENDER_ARGS[*]:-<defaults>}"
@@ -154,6 +157,8 @@ if [[ "$TEST_TYPE" == "backpressure" ]]; then
     SENDER_ARGS+=("--consumer-delay" "$CONSUMER_DELAY")
 elif [[ "$TEST_TYPE" == "pipeline" ]]; then
     TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test.sh"
+elif [[ "$TEST_TYPE" == "backpressure-suite" ]]; then
+    TEST_SCRIPT="$SCRIPT_DIR/perlmutter_backpressure_suite.sh"
 else
     TEST_SCRIPT="$SCRIPT_DIR/perlmutter_proxy_test.sh"
 fi
