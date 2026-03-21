@@ -32,8 +32,9 @@ for test_num in $(seq 1 "$NUM_TESTS"); do
         sleep 0.5
     done
 
-    BUFFER_SIZE=$(cat "$JOB_DIR/proxy_go_${test_num}")
-    echo "Coordinator: starting test $test_num (BUFFER_SIZE=$BUFFER_SIZE)"
+    # proxy_go_N contains shell var assignments: BUFFER_SIZE=50 ZMQ_HWM=5 ...
+    eval "$(cat "$JOB_DIR/proxy_go_${test_num}")"
+    echo "Coordinator: starting test $test_num (BUFFER_SIZE=${BUFFER_SIZE:-?} ZMQ_HWM=${ZMQ_HWM:-default})"
 
     # Remove any old ready/done flags from previous test
     rm -f "$JOB_DIR/proxy_ready_${test_num}" "$JOB_DIR/proxy_done_${test_num}"
@@ -41,7 +42,8 @@ for test_num in $(seq 1 "$NUM_TESTS"); do
     # Run proxy in background within THIS srun step
     (
         cd "$JOB_DIR"
-        BUFFER_SIZE="$BUFFER_SIZE" "$SCRIPT_DIR/run_proxy.sh"
+        export BUFFER_SIZE ZMQ_HWM
+        "$SCRIPT_DIR/run_proxy.sh"
     ) > "$JOB_DIR/proxy_wrapper.log" 2>&1 &
 
     PROXY_PID=$!

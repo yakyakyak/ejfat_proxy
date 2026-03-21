@@ -136,13 +136,14 @@ start_coordinator() {
 }
 
 start_proxy() {
+    # Usage: start_proxy TEST_NUM "BUFFER_SIZE=N [ZMQ_HWM=M ...]"
     local test_num="$1"
-    local buf_size="$2"
+    local config="$2"
     CURRENT_TEST="$test_num"
-    echo "Signaling coordinator: start test $test_num (BUFFER_SIZE=$buf_size)..."
+    echo "Signaling coordinator: start test $test_num ($config)..."
     rm -f "proxy_go_${test_num}" "proxy_ready_${test_num}" "proxy_done_${test_num}" \
           "proxy_stop_${test_num}" proxy.log proxy_wrapper.log
-    echo "$buf_size" > "proxy_go_${test_num}"
+    echo "$config" > "proxy_go_${test_num}"
 }
 
 wait_for_proxy_ready() {
@@ -414,7 +415,7 @@ echo "TEST 1: Baseline (no backpressure)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 1 20000
+start_proxy 1 "BUFFER_SIZE=20000 ZMQ_HWM=10000"
 start_consumer 0
 wait_for_proxy_ready 1
 
@@ -446,7 +447,7 @@ echo "TEST 2: Mild backpressure (10ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 2 50
+start_proxy 2 "BUFFER_SIZE=50 ZMQ_HWM=5"
 start_consumer 10
 wait_for_proxy_ready 2
 
@@ -479,7 +480,7 @@ echo "TEST 3: Heavy backpressure (100ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 3 50
+start_proxy 3 "BUFFER_SIZE=50 ZMQ_HWM=5"
 start_consumer 100
 wait_for_proxy_ready 3
 
@@ -512,7 +513,7 @@ echo "TEST 4: Small-event stress (64KB, 50ms delay, buf=50)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 4 50
+start_proxy 4 "BUFFER_SIZE=50 ZMQ_HWM=5"
 start_consumer 50
 wait_for_proxy_ready 4
 
@@ -543,7 +544,7 @@ echo "TEST 5: 5-minute soak (20ms delay, buf=200)"
 echo "========================================="
 
 FAIL_BEFORE=$FAIL_COUNT
-start_proxy 5 200
+start_proxy 5 "BUFFER_SIZE=200 ZMQ_HWM=10"
 start_consumer 20
 wait_for_proxy_ready 5
 
