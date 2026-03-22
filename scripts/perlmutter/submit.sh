@@ -96,7 +96,7 @@ if [[ -z "$ACCOUNT" ]]; then
     exit 1
 fi
 
-VALID_TYPES="normal backpressure pipeline backpressure-suite bp1 bp2 bp3 bp4 bp5"
+VALID_TYPES="normal backpressure pipeline backpressure-suite bp1 bp2 bp3 bp4 bp5 bp6"
 if ! echo "$VALID_TYPES" | grep -qw "$TEST_TYPE"; then
     echo "ERROR: --test-type must be one of: $VALID_TYPES"
     exit 1
@@ -173,7 +173,7 @@ if [[ "$TEST_TYPE" == "backpressure-suite" ]]; then
 fi
 
 # Individual BP tests: submit bp_testN.sh directly
-if [[ "$TEST_TYPE" =~ ^bp([1-5])$ ]]; then
+if [[ "$TEST_TYPE" =~ ^bp([1-6])$ ]]; then
     N="${BASH_REMATCH[1]}"
     TEST_SCRIPT="$SCRIPT_DIR/bp_test${N}.sh"
 else

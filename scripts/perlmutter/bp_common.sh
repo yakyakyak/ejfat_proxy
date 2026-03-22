@@ -69,6 +69,13 @@ _bp_cleanup() {
         sleep 2
         kill -9 "$CONSUMER_PID" 2>/dev/null || true
     fi
+    for _pid in "${CONSUMER_PIDS[@]:-}"; do
+        [[ -n "$_pid" ]] && kill -TERM "$_pid" 2>/dev/null || true
+    done
+    sleep 2
+    for _pid in "${CONSUMER_PIDS[@]:-}"; do
+        [[ -n "$_pid" ]] && kill -9 "$_pid" 2>/dev/null || true
+    done
     if [[ -n "$COORDINATOR_PID" ]]; then
         kill -TERM "$COORDINATOR_PID" 2>/dev/null || true
         sleep 5
@@ -188,6 +195,57 @@ stop_consumer() {
         wait "$CONSUMER_PID" 2>/dev/null || true
         CONSUMER_PID=""
     fi
+}
+
+# Named consumer support for multi-consumer tests.
+# Uses an associative array to track PIDs by name.
+declare -A CONSUMER_PIDS
+
+start_named_consumer() {
+    # Usage: start_named_consumer NAME NODE DELAY_MS [RCVHWM [RCVBUF_BYTES]]
+    local name="$1"
+    local node="$2"
+    local delay="$3"
+    local rcvhwm="${4:-1000}"
+    local rcvbuf="${5:-0}"
+    local extra_args=""
+    if [[ "$rcvhwm" -lt 1000 ]]; then
+        extra_args="$extra_args --rcvhwm '$rcvhwm'"
+    fi
+    if [[ "$rcvbuf" -gt 0 ]]; then
+        extra_args="$extra_args --rcvbuf '$rcvbuf'"
+    fi
+    echo "Starting consumer '$name' (delay=${delay}ms, rcvhwm=${rcvhwm}, rcvbuf=${rcvbuf}) on $node..."
+    srun --overlap --nodes=1 --ntasks=1 --nodelist="$node" \
+        bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/run_consumer.sh' --delay '$delay' --log-name '$name' $extra_args" \
+        > "${name}_wrapper.log" 2>&1 &
+    CONSUMER_PIDS["$name"]=$!
+    echo "Consumer '$name' PID: ${CONSUMER_PIDS[$name]}"
+}
+
+stop_named_consumer() {
+    local name="$1"
+    local pid="${CONSUMER_PIDS[$name]:-}"
+    if [[ -n "$pid" ]]; then
+        kill -TERM "$pid" 2>/dev/null || true
+        sleep 3
+        kill -9 "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        unset "CONSUMER_PIDS[$name]"
+    fi
+}
+
+stop_all_named_consumers() {
+    for name in "${!CONSUMER_PIDS[@]}"; do
+        stop_named_consumer "$name"
+    done
+}
+
+get_consumer_event_count() {
+    # Parse the final "Messages: N,NNN" line from a consumer log file.
+    local logfile="$1"
+    grep "Messages:" "$logfile" 2>/dev/null | tail -1 \
+        | grep -oP 'Messages: \K[0-9,]+' | tr -d ','
 }
 
 archive_logs() {

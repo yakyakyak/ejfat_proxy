@@ -1,7 +1,7 @@
 #!/bin/bash
 # perlmutter_backpressure_suite.sh
 #
-# Submits all 5 backpressure test jobs as separate Slurm allocations.
+# Submits all 6 backpressure test jobs as separate Slurm allocations.
 # Each test gets its own 3-node job and LB reservation, so they may
 # run in parallel (subject to queue availability).
 #
@@ -11,6 +11,7 @@
 #   3. Heavy BP       — 100ms delay, small buffer → sustained saturation
 #   4. Small-event    — 50ms delay, small buffer, 64KB events
 #   5. 5-min soak     — 20ms delay, moderate buffer, looping sender
+#   6. Dual-receiver  — fast + slow consumer, verify ZMQ fair distribution
 #
 # Usage:
 #   export EJFAT_URI="ejfats://token@lb.es.net:443/lb/xyz?..."
@@ -30,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ACCOUNT=""
 SEQUENTIAL=false
-TESTS="1,2,3,4,5"
+TESTS="1,2,3,4,5,6"
 QOS="debug"
 
 while [[ $# -gt 0 ]]; do

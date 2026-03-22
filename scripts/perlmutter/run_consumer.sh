@@ -20,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DELAY=""
 RCVHWM=""
 RCVBUF=""
+LOG_NAME="consumer"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --delay)
@@ -34,9 +35,13 @@ while [[ $# -gt 0 ]]; do
             RCVBUF="$2"
             shift 2
             ;;
+        --log-name)
+            LOG_NAME="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--delay DELAY_MS] [--rcvhwm N] [--rcvbuf BYTES]"
+            echo "Usage: $0 [--delay DELAY_MS] [--rcvhwm N] [--rcvbuf BYTES] [--log-name NAME]"
             exit 1
             ;;
     esac
@@ -105,7 +110,7 @@ echo "Command: ${CMD[*]}"
 echo ""
 
 # Run consumer, tee output to log
-"${CMD[@]}" 2>&1 | tee consumer.log
+"${CMD[@]}" 2>&1 | tee "${LOG_NAME}.log"
 
 # Capture exit code
 EXIT_CODE=${PIPESTATUS[0]}
