@@ -6,7 +6,7 @@ NERSC Perlmutter.
 For full documentation see:
 
 - **[docs/TESTING.md](../../docs/TESTING.md)** — test descriptions, assertions, and how to run them
-- **[docs/USER_GUIDE.md](../../docs/USER_GUIDE.md)** — step-by-step guide for running senders, proxy, and consumers
+- **[docs/USER_TESTING_GUIDE.md](../../docs/USER_TESTING_GUIDE.md)** — step-by-step guide for running senders, proxy, and consumers
 
 ## Quick Reference
 

@@ -164,7 +164,7 @@ export E2SAR_SCRIPTS_DIR="$PWD/scripts/perlmutter"
 
 ## User Guide
 
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for a step-by-step guide to running senders, the proxy, bridge, and ZMQ consumers manually on Perlmutter.
+See [docs/USER_TESTING_GUIDE.md](docs/USER_TESTING_GUIDE.md) for a step-by-step guide to running senders, the proxy, bridge, and ZMQ consumers manually on Perlmutter.
 
 ## Key Configuration Parameters
 
