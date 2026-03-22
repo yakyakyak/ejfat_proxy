@@ -2,6 +2,7 @@
 #include <iostream>
 #include <iomanip>
 #include <stdexcept>
+#include <chrono>
 
 namespace ejfat_zmq_proxy {
 
@@ -193,29 +194,44 @@ void EjfatZmqProxy::receiverThread() {
     e2sar::EventNum_t event_num = 0;
     uint16_t data_id = 0;
 
+    // Timing diagnostics
+    using Clock = std::chrono::steady_clock;
+    uint64_t recv_call_count = 0;
+    uint64_t recv_timeout_count = 0;
+    int64_t recv_success_us_total = 0;
+    int64_t recv_success_us_max = 0;
+    Clock::time_point first_event_time;
+    Clock::time_point last_event_time;
+
     while (running_.load()) {
-        // Use getEvent (non-blocking) rather than recvEvent to avoid ambiguous
-        // return semantics on timeout. getEvent returns value()=0 on success
-        // and value()=-1 when the queue is empty.
-        auto result = reassembler_->getEvent(
+        auto t0 = Clock::now();
+        // Blocking recvEvent with 1s timeout, same as e2sar_perf.
+        // Return semantics: value()==0 success, value()==-1 timeout/empty, has_error() error.
+        recv_call_count++;
+        auto result = reassembler_->recvEvent(
             &event_data,
             &event_bytes,
             &event_num,
-            &data_id
+            &data_id,
+            1000
         );
+        auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            Clock::now() - t0).count();
 
         if (!result) {
             // Reassembler error
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(config_.buffer.recv_timeout_ms));
             continue;
         }
 
         if (result.value() != 0) {
-            // Queue empty (-1): brief sleep then retry
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // Timeout / queue empty
+            recv_timeout_count++;
             continue;
         }
+
+        // Successful recv — record timing
+        recv_success_us_total += elapsed_us;
+        if (elapsed_us > recv_success_us_max) recv_success_us_max = elapsed_us;
 
         // Successfully received event.
         // E2SAR allocates event_data with new[]; we take ownership here.
@@ -223,24 +239,20 @@ void EjfatZmqProxy::receiverThread() {
             delete[] event_data;
             event_data = nullptr;
             event_bytes = 0;
-            std::cerr << "WARNING: recvEvent returned 0-byte event, skipping" << std::endl;
+            std::cerr << "WARNING: getEvent returned 0-byte event, skipping" << std::endl;
             continue;
         }
 
         events_received_.fetch_add(1);
+        if (events_received_.load() == 1) first_event_time = Clock::now();
+        last_event_time = Clock::now();
 
-        // Transfer buffer ownership directly into Event — zero copy.
-        // Do NOT delete[] event_data here; Event owns it and will free it
-        // via the ZMQ message free function after transmission (or in ~Event
-        // if the event is dropped from the ring buffer).
         Event event(event_data, event_bytes, event_num, data_id);
-        event_data = nullptr;  // ownership transferred to Event
+        event_data = nullptr;
         event_bytes = 0;
 
         if (!buffer_->push(std::move(event))) {
-            // Buffer full, drop event
             events_dropped_.fetch_add(1);
-
             if (config_.logging.drop_warn_interval > 0 &&
                 events_dropped_.load() % config_.logging.drop_warn_interval == 0) {
                 std::cerr << "WARNING: Dropped " << events_dropped_.load()
@@ -255,7 +267,22 @@ void EjfatZmqProxy::receiverThread() {
         }
     }
 
+    uint64_t recv_success_count = events_received_.load();
     std::cout << "Receiver thread exiting" << std::endl;
+    std::cout << "=== recvEvent() timing diagnostics ===" << std::endl;
+    std::cout << "  Total calls   : " << recv_call_count << std::endl;
+    std::cout << "  Success calls : " << recv_success_count << std::endl;
+    std::cout << "  Timeout calls : " << recv_timeout_count << std::endl;
+    if (recv_success_count > 0) {
+        std::cout << "  Avg wait (us) : " << (recv_success_us_total / (int64_t)recv_success_count) << std::endl;
+        std::cout << "  Max wait (us) : " << recv_success_us_max << std::endl;
+        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            last_event_time - first_event_time).count();
+        std::cout << "  Event span ms : " << duration_ms << std::endl;
+        if (duration_ms > 0)
+            std::cout << "  Event rate    : " << (recv_success_count * 1000 / duration_ms) << " evt/s" << std::endl;
+    }
+    std::cout << "=======================================" << std::endl;
 }
 
 void EjfatZmqProxy::printStats() const {
