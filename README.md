@@ -76,36 +76,38 @@ buffer:
 ./build/bin/ejfat_zmq_proxy --help
 ```
 
-## Testing
+## Testing on Perlmutter
 
-### 1. Start test receiver (simulates slow consumer)
+See [docs/TESTING.md](docs/TESTING.md) for the full test guide. Quick start:
 
 ```bash
-# Normal speed
+export EJFAT_URI="ejfats://token@ejfat-lb.es.net:18008/lb/..."
+export E2SAR_SCRIPTS_DIR="$PWD/scripts/perlmutter"
+
+# Normal end-to-end test
+./scripts/perlmutter/submit.sh --account m5219 --test-type normal
+
+# Backpressure test suite (6 tests)
+./scripts/perlmutter/submit.sh --account m5219 --test-type backpressure-suite
+
+# Pipeline data-integrity test
+./scripts/perlmutter/submit.sh --account m5219 --test-type pipeline
+```
+
+## User Guide
+
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for a step-by-step guide to
+running senders, the proxy, and ZMQ consumers manually.
+
+### Local Quick Test
+
+```bash
+# Start test receiver
 ./scripts/test_receiver.py --endpoint tcp://localhost:5555
 
-# With artificial 10ms delay per message (triggers backpressure)
+# With artificial delay (triggers backpressure)
 ./scripts/test_receiver.py --endpoint tcp://localhost:5555 --delay 10
 ```
-
-### 2. Start proxy
-
-```bash
-./build/bin/ejfat_zmq_proxy -c config/myconfig.yaml --stats-interval 5
-```
-
-### 3. Send data via E2SAR sender
-
-Use your E2SAR sender application to push data to the EJFAT load balancer.
-
-### 4. Observe backpressure
-
-Watch the proxy stats output:
-- `Buffer fill`: Should stay near 50% (or configured setpoint)
-- `ZMQ blocked`: Percentage of sends that hit high-water mark
-- `Last control`: Control signal sent to LB (0.0-1.0)
-
-The load balancer should adjust data distribution based on these signals.
 
 ## Key Configuration Parameters
 
