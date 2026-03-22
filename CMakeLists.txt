@@ -14,9 +14,9 @@ find_package(PkgConfig REQUIRED)
 # E2SAR installation (default: /usr/local as installed by ibaldin/e2sar container)
 set(E2SAR_ROOT "/usr/local" CACHE PATH "E2SAR installation prefix")
 set(E2SAR_INCLUDE_DIRS "${E2SAR_ROOT}/include")
-set(E2SAR_LIBRARY_DIRS "${E2SAR_ROOT}/lib")
 find_library(E2SAR_LIB_PATH NAMES e2sar
     PATHS "${E2SAR_ROOT}/lib" "${E2SAR_ROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}"
+          "${E2SAR_ROOT}/build/src"
     NO_DEFAULT_PATH REQUIRED)
 set(E2SAR_LIBRARIES "${E2SAR_LIB_PATH}")
 
@@ -45,7 +45,6 @@ include_directories(
 
 # Link directories
 link_directories(
-    ${E2SAR_LIBRARY_DIRS}
     ${LIBZMQ_LIBRARY_DIRS}
     ${YAMLCPP_LIBRARY_DIRS}
     ${GRPC_LIBRARY_DIRS}
