@@ -45,18 +45,21 @@ for test_num in $(seq 1 "$NUM_TESTS"); do
     # has a trap to forward it to podman, releasing the UDP port.
     (
         cd "$JOB_DIR"
-        export BUFFER_SIZE ZMQ_HWM ZMQ_SNDBUF BP_THRESHOLD BP_LOG_INTERVAL BP_PERIOD
+        export BUFFER_SIZE ZMQ_HWM ZMQ_SNDBUF BP_THRESHOLD READY_THRESHOLD BP_LOG_INTERVAL BP_PERIOD LINGER_MS
         exec "$SCRIPT_DIR/run_proxy.sh"
     ) > "$JOB_DIR/proxy_wrapper.log" 2>&1 &
 
     PROXY_PID=$!
     echo "Coordinator: proxy PID=$PROXY_PID"
 
-    # Wait for proxy to register with LB (check proxy.log for registration line)
+    # Wait for proxy to be ready (check proxy.log for readiness line).
+    # PROXY_READY_PATTERN defaults to "Worker registered" (LB mode).
+    # Set to "All components started" for back-to-back mode (use_cp=false).
     WAIT_MAX=30
+    READY_PATTERN="${PROXY_READY_PATTERN:-Worker registered}"
     for i in $(seq 1 $WAIT_MAX); do
-        if grep -q "Worker registered" "$JOB_DIR/proxy.log" 2>/dev/null; then
-            echo "Coordinator: proxy registered at i=$i"
+        if grep -q "$READY_PATTERN" "$JOB_DIR/proxy.log" 2>/dev/null; then
+            echo "Coordinator: proxy ready (pattern='$READY_PATTERN') at i=$i"
             break
         fi
         if ! kill -0 "$PROXY_PID" 2>/dev/null; then

@@ -25,7 +25,11 @@ echo ""
 
 # Generate config
 echo "Generating config..."
-"$SCRIPT_DIR/generate_config.sh" perlmutter_config.yaml
+if [[ "${B2B_MODE:-false}" == "true" ]]; then
+    "$SCRIPT_DIR/b2b_generate_config.sh" perlmutter_config.yaml
+else
+    "$SCRIPT_DIR/generate_config.sh" perlmutter_config.yaml
+fi
 
 if [[ ! -f perlmutter_config.yaml ]]; then
     echo "ERROR: Failed to generate config"

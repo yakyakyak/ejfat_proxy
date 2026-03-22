@@ -9,9 +9,13 @@ bp_setup_env() {
     echo "Start time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
     echo ""
 
-    if [[ -z "${EJFAT_URI:-}" ]]; then
-        echo "ERROR: EJFAT_URI is required"
-        exit 1
+    if [[ "${B2B_MODE:-false}" == "true" ]]; then
+        echo "Mode: back-to-back (no load balancer)"
+    else
+        if [[ -z "${EJFAT_URI:-}" ]]; then
+            echo "ERROR: EJFAT_URI is required"
+            exit 1
+        fi
     fi
 
     if [[ -z "${E2SAR_SCRIPTS_DIR:-}" ]]; then
@@ -82,7 +86,7 @@ _bp_cleanup() {
         kill -9 "$COORDINATOR_PID" 2>/dev/null || true
     fi
 
-    if [[ -f "$JOB_DIR/INSTANCE_URI" ]]; then
+    if [[ "${B2B_MODE:-false}" != "true" ]] && [[ -f "$JOB_DIR/INSTANCE_URI" ]]; then
         cd "$JOB_DIR"
         "$SCRIPT_DIR/minimal_free.sh" 2>/dev/null || echo "WARNING: Failed to free LB"
     fi
@@ -110,9 +114,13 @@ bp_reserve_lb() {
 }
 
 start_coordinator() {
-    echo "Starting proxy coordinator on $NODE_PROXY..."
+    # Usage: start_coordinator [NUM_TESTS]
+    # NUM_TESTS defaults to 1 (each per-test Slurm script runs one test).
+    # The b2b suite passes 5 to run all tests under one coordinator.
+    local num_tests="${1:-1}"
+    echo "Starting proxy coordinator on $NODE_PROXY (num_tests=$num_tests)..."
     srun --nodes=1 --ntasks=1 --nodelist="$NODE_PROXY" \
-        bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/proxy_coordinator.sh' '$JOB_DIR' '$SCRIPT_DIR' 1" \
+        bash -c "cd '$JOB_DIR' && '$SCRIPT_DIR/proxy_coordinator.sh' '$JOB_DIR' '$SCRIPT_DIR' '$num_tests'" \
         > coordinator.log 2>&1 &
     COORDINATOR_PID=$!
     echo "Coordinator PID: $COORDINATOR_PID"
@@ -245,7 +253,7 @@ get_consumer_event_count() {
     # Parse the final "Messages: N,NNN" line from a consumer log file.
     local logfile="$1"
     grep "Messages:" "$logfile" 2>/dev/null | tail -1 \
-        | grep -oP 'Messages: \K[0-9,]+' | tr -d ','
+        | grep -oE 'Messages: [0-9,]+' | sed 's/Messages: //' | tr -d ','
 }
 
 archive_logs() {
@@ -262,6 +270,13 @@ archive_logs() {
 # Assertion helpers
 #=============================================================================
 
+# Portable fill-value extractor. Outputs one number per matching log line.
+# Replaces 'grep -oP fill=\K[0-9.]+' which requires GNU grep (not macOS BSD grep).
+_extract_fill() {
+    local logfile="$1"
+    grep -oE 'fill=[0-9.]+' "$logfile" 2>/dev/null | sed 's/fill=//'
+}
+
 assert_pass() {
     local name="$1"
     echo "  PASS: $name"
@@ -277,34 +292,92 @@ assert_fail() {
 
 assert_no_backpressure() {
     local logfile="${1:-proxy.log}"
-    if grep -q "ready=0" "$logfile" 2>/dev/null; then
-        assert_fail "no-backpressure" "ready=0 was found"
+    if [[ "${B2B_MODE:-false}" == "true" ]]; then
+        # B2B: no ready= in log. Check fill never reached the configured threshold.
+        local threshold_pct
+        threshold_pct=$(awk "BEGIN{printf \"%.1f\", ${BP_THRESHOLD:-0.95} * 100}")
+        local max_fill
+        max_fill=$(_extract_fill "$logfile" \
+            | awk 'BEGIN{m=0} {if($1+0>m)m=$1+0} END{print m}')
+        if [[ -z "$max_fill" ]]; then
+            assert_pass "no-backpressure (no fill data)"
+            return
+        fi
+        if awk "BEGIN{exit ($max_fill < $threshold_pct) ? 0 : 1}"; then
+            assert_pass "no-backpressure (max_fill=${max_fill}% < threshold=${threshold_pct}%)"
+        else
+            assert_fail "no-backpressure" "max_fill=${max_fill}% >= threshold=${threshold_pct}%"
+        fi
     else
-        assert_pass "no-backpressure"
+        if grep -q "ready=0" "$logfile" 2>/dev/null; then
+            assert_fail "no-backpressure" "ready=0 was found"
+        else
+            assert_pass "no-backpressure"
+        fi
     fi
 }
 
 assert_backpressure_triggered() {
     local logfile="${1:-proxy.log}"
-    if grep -q "ready=0" "$logfile" 2>/dev/null; then
-        assert_pass "backpressure-triggered"
+    if [[ "${B2B_MODE:-false}" == "true" ]]; then
+        # B2B: check that fill reached the configured threshold.
+        local threshold_pct
+        threshold_pct=$(awk "BEGIN{printf \"%.1f\", ${BP_THRESHOLD:-0.95} * 100}")
+        local max_fill
+        max_fill=$(_extract_fill "$logfile" \
+            | awk 'BEGIN{m=0} {if($1+0>m)m=$1+0} END{print m}')
+        if [[ -z "$max_fill" ]]; then
+            assert_fail "backpressure-triggered" "no fill data in log"
+            return
+        fi
+        if awk "BEGIN{exit ($max_fill >= $threshold_pct) ? 0 : 1}"; then
+            assert_pass "backpressure-triggered (max_fill=${max_fill}% >= threshold=${threshold_pct}%)"
+        else
+            assert_fail "backpressure-triggered" "max_fill=${max_fill}% < threshold=${threshold_pct}%"
+        fi
     else
-        assert_fail "backpressure-triggered" "ready=0 never seen"
+        if grep -q "ready=0" "$logfile" 2>/dev/null; then
+            assert_pass "backpressure-triggered"
+        else
+            assert_fail "backpressure-triggered" "ready=0 never seen"
+        fi
     fi
 }
 
 assert_backpressure_recovered() {
     local logfile="${1:-proxy.log}"
-    local first_bp_line
-    first_bp_line=$(grep -n "ready=0" "$logfile" 2>/dev/null | head -1 | cut -d: -f1)
-    if [[ -z "$first_bp_line" ]]; then
-        assert_fail "backpressure-recovered" "no ready=0 found"
-        return
-    fi
-    if tail -n "+$((first_bp_line + 1))" "$logfile" 2>/dev/null | grep -q "ready=1"; then
-        assert_pass "backpressure-recovered"
+    if [[ "${B2B_MODE:-false}" == "true" ]]; then
+        # B2B: check fill went above threshold then came back below it.
+        local threshold_pct
+        threshold_pct=$(awk "BEGIN{printf \"%.1f\", ${BP_THRESHOLD:-0.95} * 100}")
+        local saw_above=false saw_recovery=false
+        while IFS= read -r fill_val; do
+            if awk "BEGIN{exit ($fill_val >= $threshold_pct) ? 0 : 1}"; then
+                saw_above=true
+            elif [[ "$saw_above" == "true" ]]; then
+                saw_recovery=true
+                break
+            fi
+        done < <(_extract_fill "$logfile")
+        if [[ "$saw_recovery" == "true" ]]; then
+            assert_pass "backpressure-recovered"
+        elif [[ "$saw_above" == "true" ]]; then
+            assert_fail "backpressure-recovered" "fill exceeded threshold but never recovered"
+        else
+            assert_fail "backpressure-recovered" "fill never exceeded threshold=${threshold_pct}%"
+        fi
     else
-        assert_fail "backpressure-recovered" "ready=1 never seen after ready=0"
+        local first_bp_line
+        first_bp_line=$(grep -n "ready=0" "$logfile" 2>/dev/null | head -1 | cut -d: -f1)
+        if [[ -z "$first_bp_line" ]]; then
+            assert_fail "backpressure-recovered" "no ready=0 found"
+            return
+        fi
+        if tail -n "+$((first_bp_line + 1))" "$logfile" 2>/dev/null | grep -q "ready=1"; then
+            assert_pass "backpressure-recovered"
+        else
+            assert_fail "backpressure-recovered" "ready=1 never seen after ready=0"
+        fi
     fi
 }
 
@@ -312,7 +385,7 @@ assert_fill_peaked() {
     local threshold="$1"
     local logfile="${2:-proxy.log}"
     local max_fill
-    max_fill=$(grep -oP 'fill=\K[0-9.]+' "$logfile" 2>/dev/null \
+    max_fill=$(_extract_fill "$logfile" \
         | awk 'BEGIN{m=0} {if($1+0>m)m=$1+0} END{print m}')
     if [[ -z "$max_fill" ]]; then
         assert_fail "fill-peaked-${threshold}" "no fill% data in log"
@@ -329,7 +402,7 @@ assert_fill_stayed_low() {
     local threshold="$1"
     local logfile="${2:-proxy.log}"
     local max_fill
-    max_fill=$(grep -oP 'fill=\K[0-9.]+' "$logfile" 2>/dev/null \
+    max_fill=$(_extract_fill "$logfile" \
         | awk 'BEGIN{m=0} {if($1+0>m)m=$1+0} END{print m}')
     if [[ -z "$max_fill" ]]; then
         assert_fail "fill-stayed-low-${threshold}" "no fill% data in log"
@@ -348,7 +421,7 @@ assert_events_received() {
     local logfile="${3:-consumer.log}"
     local count
     count=$(grep "Messages:" "$logfile" 2>/dev/null | tail -1 \
-        | grep -oP 'Messages: \K[0-9,]+' | tr -d ',')
+        | grep -oE 'Messages: [0-9,]+' | sed 's/Messages: //' | tr -d ',')
     if [[ -z "$count" ]]; then
         assert_fail "events-received-${min}" "no Messages: line in consumer.log"
         return
@@ -372,25 +445,49 @@ assert_no_crash() {
 assert_sustained_bp() {
     local min_count="${1:-3}"
     local logfile="${2:-proxy.log}"
-    local max_run
-    max_run=$(grep -oP 'ready=\K[01]' "$logfile" 2>/dev/null \
-        | awk -v req=0 'BEGIN{cur=0;max=0} \
-            {if($1==req){cur++;if(cur>max)max=cur}else{cur=0}} \
-            END{print max}')
-    if [[ -z "$max_run" ]]; then
-        assert_fail "sustained-bp-${min_count}" "no ready= data in log"
-        return
-    fi
-    if [[ "$max_run" -ge "$min_count" ]]; then
-        assert_pass "sustained-bp-${min_count} (max_run=${max_run})"
+    if [[ "${B2B_MODE:-false}" == "true" ]]; then
+        # B2B: count max consecutive fill readings >= threshold%.
+        local threshold_pct
+        threshold_pct=$(awk "BEGIN{printf \"%.1f\", ${BP_THRESHOLD:-0.95} * 100}")
+        local max_run
+        max_run=$(_extract_fill "$logfile" \
+            | awk -v thr="$threshold_pct" \
+                'BEGIN{cur=0;max=0} {if($1+0>=thr+0){cur++;if(cur>max)max=cur}else{cur=0}} END{print max}')
+        if [[ -z "$max_run" ]]; then
+            assert_fail "sustained-bp-${min_count}" "no fill data in log"
+            return
+        fi
+        if [[ "$max_run" -ge "$min_count" ]]; then
+            assert_pass "sustained-bp-${min_count} (max_run=${max_run}, threshold=${threshold_pct}%)"
+        else
+            assert_fail "sustained-bp-${min_count}" "max consecutive fill>=${threshold_pct}% run=${max_run} < ${min_count}"
+        fi
     else
-        assert_fail "sustained-bp-${min_count}" "max consecutive ready=0 run=${max_run} < ${min_count}"
+        local max_run
+        max_run=$(grep -oP 'ready=\K[01]' "$logfile" 2>/dev/null \
+            | awk -v req=0 'BEGIN{cur=0;max=0} \
+                {if($1==req){cur++;if(cur>max)max=cur}else{cur=0}} \
+                END{print max}')
+        if [[ -z "$max_run" ]]; then
+            assert_fail "sustained-bp-${min_count}" "no ready= data in log"
+            return
+        fi
+        if [[ "$max_run" -ge "$min_count" ]]; then
+            assert_pass "sustained-bp-${min_count} (max_run=${max_run})"
+        else
+            assert_fail "sustained-bp-${min_count}" "max consecutive ready=0 run=${max_run} < ${min_count}"
+        fi
     fi
 }
 
 assert_control_peaked() {
     local threshold="$1"
     local logfile="${2:-proxy.log}"
+    if [[ "${B2B_MODE:-false}" == "true" ]]; then
+        # B2B: control signal is computed internally but not logged without CP.
+        echo "  SKIP: control-peaked-${threshold} (not logged in back-to-back mode)"
+        return
+    fi
     local max_ctrl
     max_ctrl=$(grep -oP 'control=\K[0-9.]+' "$logfile" 2>/dev/null \
         | awk 'BEGIN{m=0} {if($1+0>m)m=$1+0} END{print m}')
@@ -413,7 +510,7 @@ bp_print_summary() {
     echo "========================================="
     echo "Assertions: pass=$PASS_COUNT fail=$FAIL_COUNT"
     echo "End time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-    echo "Logs saved to: $JOB_DIR"
+    echo "Logs saved to: ${JOB_DIR:-$(pwd)}"
     echo ""
     if [[ "$FAIL_COUNT" -gt 0 ]]; then
         echo "TEST: FAILED"
@@ -421,5 +518,22 @@ bp_print_summary() {
     else
         echo "TEST: PASSED"
         exit 0
+    fi
+}
+
+# Non-exiting variant for use in scripts that run multiple tests in one process.
+# Call this after each test, then reset PASS_COUNT=0 FAIL_COUNT=0 before the next.
+bp_print_summary_noexit() {
+    local test_name="$1"
+    echo ""
+    echo "-----------------------------------------"
+    echo "Results: $test_name"
+    echo "Assertions: pass=$PASS_COUNT fail=$FAIL_COUNT"
+    if [[ "$FAIL_COUNT" -gt 0 ]]; then
+        echo "TEST: FAILED"
+        return 1
+    else
+        echo "TEST: PASSED"
+        return 0
     fi
 }
