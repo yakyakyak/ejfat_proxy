@@ -171,7 +171,12 @@ int main(int argc, char* argv[]) {
 
         events_received++;
 
-        auto res = segmenter.addToSendQueue(
+        // Use sendEvent (synchronous) rather than addToSendQueue (async/zero-copy).
+        // addToSendQueue holds a raw pointer to msg.data() without copying; msg is
+        // destroyed at the end of this loop iteration, leaving E2SAR with a dangling
+        // pointer when the send queue backs up at high throughput.
+        // sendEvent copies/sends the data before returning, so msg lifetime is safe.
+        auto res = segmenter.sendEvent(
             static_cast<uint8_t*>(msg.data()),
             msg.size()
         );
@@ -180,7 +185,7 @@ int main(int argc, char* argv[]) {
             events_dropped++;
             if (events_dropped % 1000 == 0) {
                 std::cerr << "WARNING: " << events_dropped
-                          << " events dropped (send queue full)" << std::endl;
+                          << " events dropped (send failed)" << std::endl;
             }
         } else {
             events_sent++;

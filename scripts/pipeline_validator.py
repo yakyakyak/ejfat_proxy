@@ -7,12 +7,17 @@ Expects messages in the format produced by pipeline_sender.py:
   bytes 8+  : fill pattern where each byte == (seq_num & 0xFF)
 
 Validates:
-  - Sequence continuity (gaps, duplicates, reordering)
+  - All expected sequence numbers are received (order-tolerant)
+  - No duplicate sequence numbers
   - Payload fill pattern correctness
+
+Note: Out-of-order delivery is expected and tolerated — the proxy makes no
+ordering guarantees due to multi-threaded reassembly. Only true losses
+(sequences never received) and duplicates are counted as failures.
 
 Exit codes:
   0 - All messages received and validated successfully
-  1 - Validation errors (gaps, payload corruption, etc.)
+  1 - Validation errors (missing seqs, duplicates, payload corruption)
   2 - Timeout before expected count reached
 
 Used as N4 in the pipeline test.
@@ -72,9 +77,9 @@ def main():
 
     received        = 0
     payload_errors  = 0
-    gaps            = 0
     duplicates      = 0
-    next_expected   = None
+    seen_seqs       = set()
+    first_seq       = None
     last_recv_time  = time.time()
     start_time      = time.time()
 
@@ -101,22 +106,17 @@ def main():
                 continue
 
             seq = struct.unpack(">Q", msg[:8])[0]
-            received += 1
 
-            # Sequence check
-            if next_expected is None:
-                next_expected = seq + 1
-            elif seq == next_expected:
-                next_expected += 1
-            elif seq < next_expected:
+            if first_seq is None:
+                first_seq = seq
+
+            if seq in seen_seqs:
                 duplicates += 1
-                print(f"DUPLICATE: seq={seq} (expected {next_expected})")
+                print(f"DUPLICATE: seq={seq}")
                 continue
-            else:
-                gap = seq - next_expected
-                gaps += gap
-                print(f"GAP: seq={seq} expected={next_expected} (missing {gap} messages)")
-                next_expected = seq + 1
+
+            seen_seqs.add(seq)
+            received += 1
 
             # Payload check
             if not args.no_payload_check:
@@ -129,7 +129,7 @@ def main():
                 elapsed = time.time() - start_time
                 rate    = received / elapsed if elapsed > 0 else 0
                 print(f"Received {received:,} | {rate:,.1f} msg/s | "
-                      f"gaps={gaps} dup={duplicates} err={payload_errors}")
+                      f"dup={duplicates} err={payload_errors}")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -141,7 +141,20 @@ def main():
     elapsed = time.time() - start_time
     rate    = received / elapsed if elapsed > 0 else 0
 
-    ok = (gaps == 0 and duplicates == 0 and payload_errors == 0
+    # Compute truly missing sequences
+    missing = 0
+    missing_seqs = []
+    if not unlimited and first_seq is not None:
+        expected_seqs = set(range(first_seq, first_seq + args.expected))
+        missing_set   = expected_seqs - seen_seqs
+        missing       = len(missing_set)
+        missing_seqs  = sorted(missing_set)
+        if missing_seqs:
+            preview = missing_seqs[:10]
+            suffix  = f" ... (+{missing - 10} more)" if missing > 10 else ""
+            print(f"MISSING seqs: {preview}{suffix}")
+
+    ok = (missing == 0 and duplicates == 0 and payload_errors == 0
           and (unlimited or received >= args.expected))
 
     print(f"\n=== Validation Summary ===")
@@ -149,7 +162,7 @@ def main():
     print(f"Expected          : {'unlimited' if unlimited else args.expected}")
     print(f"Duration          : {elapsed:.2f}s")
     print(f"Average rate      : {rate:,.1f} msg/s")
-    print(f"Gaps (missing)    : {gaps}")
+    print(f"Missing           : {missing}")
     print(f"Duplicates        : {duplicates}")
     print(f"Payload errors    : {payload_errors}")
     print(f"Result            : {'PASS' if ok else 'FAIL'}")
