@@ -6,12 +6,17 @@
  *   bytes 8+  : fill pattern where each byte == (seq_num & 0xFF)
  *
  * Validates:
- *   - Sequence continuity (gaps, duplicates, reordering)
+ *   - All expected sequence numbers are received (order-tolerant)
+ *   - No duplicate sequence numbers
  *   - Payload fill pattern correctness
+ *
+ * Note: Out-of-order delivery is expected and tolerated — the proxy makes no
+ * ordering guarantees due to multi-threaded reassembly. Only truly missing
+ * sequences and actual duplicates are counted as failures.
  *
  * Exit codes:
  *   0 - All messages received and validated successfully
- *   1 - Validation errors (gaps, payload corruption, etc.)
+ *   1 - Validation errors (missing seqs, duplicates, payload corruption)
  *   2 - Timeout before expected count reached
  *
  * Used as N4 in the pipeline test.
@@ -27,6 +32,9 @@
 #include <cstring>
 #include <cstdint>
 #include <optional>
+#include <unordered_set>
+#include <vector>
+#include <algorithm>
 
 namespace po = boost::program_options;
 
@@ -105,10 +113,11 @@ int main(int argc, char* argv[]) {
 
     uint64_t received       = 0;
     uint64_t payload_errors = 0;
-    uint64_t gaps           = 0;
     uint64_t duplicates     = 0;
+    std::unordered_set<uint64_t> seen_seqs;
+    seen_seqs.reserve(expected > 0 ? expected : 1024);
     bool     first_msg      = true;
-    uint64_t next_expected  = 0;
+    uint64_t first_seq      = 0;
 
     auto start_time    = std::chrono::steady_clock::now();
     auto last_recv     = start_time;
@@ -142,25 +151,20 @@ int main(int argc, char* argv[]) {
 
         const uint8_t* data = static_cast<const uint8_t*>(msg.data());
         uint64_t seq = from_be64(data);
-        received++;
 
-        // Sequence check
         if (first_msg) {
-            next_expected = seq + 1;
+            first_seq = seq;
             first_msg = false;
-        } else if (seq == next_expected) {
-            next_expected++;
-        } else if (seq < next_expected) {
-            duplicates++;
-            std::cout << "DUPLICATE: seq=" << seq << " (expected " << next_expected << ")" << std::endl;
-            continue;
-        } else {
-            uint64_t gap = seq - next_expected;
-            gaps += gap;
-            std::cout << "GAP: seq=" << seq << " expected=" << next_expected
-                      << " (missing " << gap << " messages)" << std::endl;
-            next_expected = seq + 1;
         }
+
+        // Order-tolerant duplicate detection
+        if (seen_seqs.count(seq)) {
+            duplicates++;
+            std::cout << "DUPLICATE: seq=" << seq << std::endl;
+            continue;
+        }
+        seen_seqs.insert(seq);
+        received++;
 
         // Payload check
         if (!no_payload_check) {
@@ -171,12 +175,12 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        if (received % 1000 == 0) {
+        if (received % 10000 == 0) {
             auto now    = std::chrono::steady_clock::now();
             double elapsed = std::chrono::duration<double>(now - start_time).count();
             double r    = (elapsed > 0) ? (static_cast<double>(received) / elapsed) : 0.0;
             std::cout << "Received " << received << " | " << static_cast<int>(r) << " msg/s"
-                      << " | gaps=" << gaps << " dup=" << duplicates
+                      << " | dup=" << duplicates
                       << " err=" << payload_errors << std::endl;
         }
     }
@@ -185,7 +189,21 @@ int main(int argc, char* argv[]) {
     double elapsed = std::chrono::duration<double>(end - start_time).count();
     double avg_rate = (elapsed > 0) ? (static_cast<double>(received) / elapsed) : 0.0;
 
-    bool ok = (gaps == 0 && duplicates == 0 && payload_errors == 0
+    // Compute truly missing sequences
+    uint64_t missing = 0;
+    if (!unlimited && !first_msg) {
+        for (uint64_t s = first_seq; s < first_seq + expected; s++) {
+            if (!seen_seqs.count(s)) {
+                missing++;
+                if (missing <= 10)
+                    std::cout << "MISSING: seq=" << s << std::endl;
+            }
+        }
+        if (missing > 10)
+            std::cout << "  ... (" << missing << " total missing)" << std::endl;
+    }
+
+    bool ok = (missing == 0 && duplicates == 0 && payload_errors == 0
                && (unlimited || received >= expected));
 
     std::cout << "\n=== Validation Summary ===" << std::endl;
@@ -193,7 +211,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Expected          : " << (unlimited ? "unlimited" : std::to_string(expected)) << std::endl;
     std::cout << "Duration          : " << elapsed << "s" << std::endl;
     std::cout << "Average rate      : " << static_cast<int>(avg_rate) << " msg/s" << std::endl;
-    std::cout << "Gaps (missing)    : " << gaps << std::endl;
+    std::cout << "Missing           : " << missing << std::endl;
     std::cout << "Duplicates        : " << duplicates << std::endl;
     std::cout << "Payload errors    : " << payload_errors << std::endl;
     std::cout << "Result            : " << (ok ? "PASS" : "FAIL") << std::endl;
