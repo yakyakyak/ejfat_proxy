@@ -218,7 +218,7 @@ void EjfatZmqProxy::receiverThread() {
         }
 
         // Successfully received event.
-        // E2SAR allocates event_data; free it after copying.
+        // E2SAR allocates event_data with new[]; we take ownership here.
         if (event_bytes == 0 || event_data == nullptr) {
             delete[] event_data;
             event_data = nullptr;
@@ -229,11 +229,12 @@ void EjfatZmqProxy::receiverThread() {
 
         events_received_.fetch_add(1);
 
-        // Create event (copies payload) and push to ring buffer.
-        // E2SAR allocates event_data; free it after copying.
+        // Transfer buffer ownership directly into Event — zero copy.
+        // Do NOT delete[] event_data here; Event owns it and will free it
+        // via the ZMQ message free function after transmission (or in ~Event
+        // if the event is dropped from the ring buffer).
         Event event(event_data, event_bytes, event_num, data_id);
-        delete[] event_data;
-        event_data = nullptr;
+        event_data = nullptr;  // ownership transferred to Event
         event_bytes = 0;
 
         if (!buffer_->push(std::move(event))) {

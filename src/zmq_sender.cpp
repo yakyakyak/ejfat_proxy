@@ -68,8 +68,17 @@ void ZmqSender::run() {
             continue;
         }
 
-        // Prepare ZMQ message
-        zmq::message_t msg(event.data.data(), event.data.size());
+        // Zero-copy ZMQ message: wrap the E2SAR buffer directly.
+        // The free function calls delete[] when ZMQ is done with the data,
+        // so we must release ownership from event first.
+        uint8_t* buf   = event.data;
+        size_t   bytes = event.bytes;
+        event.data  = nullptr;  // ownership transferred to ZMQ message
+        event.bytes = 0;
+
+        zmq::message_t msg(buf, bytes,
+            [](void* ptr, void*) { delete[] static_cast<uint8_t*>(ptr); },
+            nullptr);
 
         // Try non-blocking send to detect backpressure.
         // On EAGAIN (!result.has_value()), msg is intact and we retry blocking.

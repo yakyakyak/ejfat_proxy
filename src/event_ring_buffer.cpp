@@ -6,14 +6,6 @@ EventRingBuffer::EventRingBuffer(size_t capacity)
     : queue_(capacity), capacity_(capacity) {
 }
 
-bool EventRingBuffer::push(const Event& event) {
-    if (queue_.push(event)) {
-        approx_size_.fetch_add(1, std::memory_order_relaxed);
-        return true;
-    }
-    return false;
-}
-
 bool EventRingBuffer::push(Event&& event) {
     if (queue_.push(std::move(event))) {
         approx_size_.fetch_add(1, std::memory_order_relaxed);
