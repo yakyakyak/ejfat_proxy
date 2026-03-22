@@ -50,7 +50,9 @@ int main(int argc, char* argv[]) {
         ("stats-interval", po::value<int>()->default_value(10),
                      "Stats print interval in seconds (0=disable)")
         ("sender-ip", po::value<std::string>()->default_value(""),
-                     "Explicit sender IP to register with LB CP (default: auto-detect via addSenderSelf)");
+                     "Explicit sender IP to register with LB CP (default: auto-detect via addSenderSelf)")
+        ("no-cp",    po::bool_switch()->default_value(false),
+                     "Disable control plane (no LB registration, no sync packets; for B2B/local testing)");
 
     po::variables_map vm;
     try {
@@ -69,15 +71,15 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT,  signalHandler);
     std::signal(SIGTERM, signalHandler);
 
+    const bool no_cp = vm["no-cp"].as<bool>();
+
     // Parse EJFAT URI (instance token — reservation already made)
     e2sar::EjfatURI uri(vm["uri"].as<std::string>(),
                         e2sar::EjfatURI::TokenType::instance);
 
     // Register this node as a sender with the LB control plane.
-    // The LB's data plane only routes traffic from registered senders.
-    // Use explicit sender-ip (same IP used for UDP sending) to avoid
-    // addSenderSelf() registering the management IP instead of the HSN IP.
-    {
+    // Skipped in --no-cp (B2B/local) mode.
+    if (!no_cp) {
         e2sar::LBManager lb_mgr(uri, false, false);  // validateServer=false, useHostAddress=false
         const std::string sender_ip = vm["sender-ip"].as<std::string>();
         if (sender_ip.empty()) {
@@ -101,10 +103,10 @@ int main(int argc, char* argv[]) {
 
     // Configure Segmenter
     e2sar::Segmenter::SegmenterFlags sflags;
-    sflags.useCP          = true;
+    sflags.useCP          = !no_cp;
     sflags.mtu            = vm["mtu"].as<uint16_t>();
     sflags.numSendSockets = static_cast<size_t>(vm["sockets"].as<int>());
-    sflags.warmUpMs       = 500;
+    sflags.warmUpMs       = no_cp ? 0 : 500;
 
     e2sar::Segmenter segmenter(
         uri,
