@@ -39,11 +39,14 @@ for test_num in $(seq 1 "$NUM_TESTS"); do
     # Remove any old ready/done flags from previous test
     rm -f "$JOB_DIR/proxy_ready_${test_num}" "$JOB_DIR/proxy_done_${test_num}"
 
-    # Run proxy in background within THIS srun step
+    # Run proxy in background within THIS srun step.
+    # Use 'exec' so PROXY_PID == run_proxy.sh PID (not an intermediate bash subshell).
+    # This ensures SIGTERM sent to PROXY_PID reaches run_proxy.sh directly, which
+    # has a trap to forward it to podman, releasing the UDP port.
     (
         cd "$JOB_DIR"
-        export BUFFER_SIZE ZMQ_HWM
-        "$SCRIPT_DIR/run_proxy.sh"
+        export BUFFER_SIZE ZMQ_HWM ZMQ_SNDBUF BP_THRESHOLD BP_LOG_INTERVAL BP_PERIOD
+        exec "$SCRIPT_DIR/run_proxy.sh"
     ) > "$JOB_DIR/proxy_wrapper.log" 2>&1 &
 
     PROXY_PID=$!

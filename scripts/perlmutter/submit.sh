@@ -7,7 +7,8 @@
 # Options:
 #   --account ACC         SLURM account (required)
 #   --pre-reserve         Reserve LB before submitting job
-#   --test-type TYPE      Test type: normal (default), backpressure, pipeline, or backpressure-suite
+#   --test-type TYPE      Test type: normal (default), backpressure, pipeline,
+#                         backpressure-suite (submit all 5 BP jobs), or bp1..bp5 (individual)
 #   --consumer-delay MS   Consumer delay for backpressure test (default: 10)
 #   --help                Show this help
 #
@@ -95,9 +96,9 @@ if [[ -z "$ACCOUNT" ]]; then
     exit 1
 fi
 
-if [[ "$TEST_TYPE" != "normal" && "$TEST_TYPE" != "backpressure" && \
-      "$TEST_TYPE" != "pipeline" && "$TEST_TYPE" != "backpressure-suite" ]]; then
-    echo "ERROR: --test-type must be 'normal', 'backpressure', 'pipeline', or 'backpressure-suite'"
+VALID_TYPES="normal backpressure pipeline backpressure-suite bp1 bp2 bp3 bp4 bp5"
+if ! echo "$VALID_TYPES" | grep -qw "$TEST_TYPE"; then
+    echo "ERROR: --test-type must be one of: $VALID_TYPES"
     exit 1
 fi
 
@@ -117,7 +118,7 @@ echo "Test type: $TEST_TYPE"
 if [[ "$TEST_TYPE" == "backpressure" ]]; then
     echo "Consumer delay: ${CONSUMER_DELAY}ms"
 elif [[ "$TEST_TYPE" == "backpressure-suite" ]]; then
-    echo "Running all 5 backpressure scenarios (15 min)"
+    echo "Submitting all 5 BP tests as separate jobs"
 fi
 echo "SBATCH options: ${SBATCH_OPTS[*]:-<defaults>}"
 echo "Sender arguments: ${SENDER_ARGS[*]:-<defaults>}"
@@ -151,16 +152,40 @@ if [[ "$PRE_RESERVE" == "true" ]]; then
     rm -rf "$RESERVE_DIR"
 fi
 
-# Select test script
-if [[ "$TEST_TYPE" == "backpressure" ]]; then
-    TEST_SCRIPT="$SCRIPT_DIR/perlmutter_backpressure_test.sh"
-    SENDER_ARGS+=("--consumer-delay" "$CONSUMER_DELAY")
-elif [[ "$TEST_TYPE" == "pipeline" ]]; then
-    TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test.sh"
-elif [[ "$TEST_TYPE" == "backpressure-suite" ]]; then
-    TEST_SCRIPT="$SCRIPT_DIR/perlmutter_backpressure_suite.sh"
+# Set E2SAR_SCRIPTS_DIR for the job(s)
+export E2SAR_SCRIPTS_DIR="$SCRIPT_DIR"
+export EJFAT_URI
+
+cd "$PROJECT_ROOT"
+
+# backpressure-suite: delegate to suite orchestrator (runs ./bp_testN.sh scripts)
+if [[ "$TEST_TYPE" == "backpressure-suite" ]]; then
+    echo "========================================="
+    echo "Submitting BP Suite"
+    echo "========================================="
+    SUITE_ARGS=(--account "$ACCOUNT")
+    for opt in "${SBATCH_OPTS[@]}"; do
+        [[ "$opt" == "-q" || "$opt" == "--qos" ]] && SUITE_ARGS+=(--qos)
+        [[ "$opt" =~ ^[^-] ]] && SUITE_ARGS+=("$opt") || true
+    done
+    "$SCRIPT_DIR/perlmutter_backpressure_suite.sh" "${SUITE_ARGS[@]}"
+    exit 0
+fi
+
+# Individual BP tests: submit bp_testN.sh directly
+if [[ "$TEST_TYPE" =~ ^bp([1-5])$ ]]; then
+    N="${BASH_REMATCH[1]}"
+    TEST_SCRIPT="$SCRIPT_DIR/bp_test${N}.sh"
 else
-    TEST_SCRIPT="$SCRIPT_DIR/perlmutter_proxy_test.sh"
+    # Select test script for other types
+    if [[ "$TEST_TYPE" == "backpressure" ]]; then
+        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_backpressure_test.sh"
+        SENDER_ARGS+=("--consumer-delay" "$CONSUMER_DELAY")
+    elif [[ "$TEST_TYPE" == "pipeline" ]]; then
+        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test.sh"
+    else
+        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_proxy_test.sh"
+    fi
 fi
 
 # Build sbatch command
@@ -180,12 +205,6 @@ echo ""
 echo "Command: ${SBATCH_CMD[*]}"
 echo ""
 
-# Set E2SAR_SCRIPTS_DIR for the job
-export E2SAR_SCRIPTS_DIR="$SCRIPT_DIR"
-export EJFAT_URI
-
-# Submit job
-cd "$PROJECT_ROOT"
 "${SBATCH_CMD[@]}"
 
 echo ""

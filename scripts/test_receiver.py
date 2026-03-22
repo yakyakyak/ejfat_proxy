@@ -14,10 +14,12 @@ import sys
 
 
 class TestReceiver:
-    def __init__(self, endpoint, delay_ms=0, stats_interval=1000):
+    def __init__(self, endpoint, delay_ms=0, stats_interval=1000, rcvhwm=1000, rcvbuf=0):
         self.endpoint = endpoint
         self.delay_ms = delay_ms
         self.stats_interval = stats_interval
+        self.rcvhwm = rcvhwm
+        self.rcvbuf = rcvbuf   # SO_RCVBUF via ZMQ_RCVBUF; 0 = OS default
         self.running = True
 
         # Stats
@@ -37,9 +39,13 @@ class TestReceiver:
         # Create ZMQ context and socket
         context = zmq.Context()
         socket = context.socket(zmq.PULL)
+        socket.set(zmq.RCVHWM, self.rcvhwm)
+        if self.rcvbuf > 0:
+            socket.set(zmq.RCVBUF, self.rcvbuf)
         socket.connect(self.endpoint)
 
         print(f"Connected to {self.endpoint}")
+        print(f"ZMQ RCVHWM: {self.rcvhwm}, RCVBUF: {self.rcvbuf if self.rcvbuf > 0 else 'OS default'}")
         if self.delay_ms > 0:
             print(f"Artificial delay: {self.delay_ms}ms per message")
         print("Waiting for messages... (Ctrl+C to stop)\n")
@@ -119,13 +125,31 @@ def main():
         default=1000,
         help="Print stats every N messages (default: 1000)"
     )
+    parser.add_argument(
+        "--rcvhwm",
+        type=int,
+        default=1000,
+        help="ZMQ receive high-water mark in messages (default: 1000). "
+             "Lower values limit the receive buffer and trigger TCP flow control "
+             "for more realistic backpressure testing."
+    )
+    parser.add_argument(
+        "--rcvbuf",
+        type=int,
+        default=0,
+        help="Kernel TCP receive buffer size in bytes via ZMQ_RCVBUF/SO_RCVBUF "
+             "(default: 0 = OS default, typically large on HPC). "
+             "Set small (e.g. 131072) to force aggressive TCP flow control."
+    )
 
     args = parser.parse_args()
 
     receiver = TestReceiver(
         endpoint=args.endpoint,
         delay_ms=args.delay,
-        stats_interval=args.stats_interval
+        stats_interval=args.stats_interval,
+        rcvhwm=args.rcvhwm,
+        rcvbuf=args.rcvbuf,
     )
 
     receiver.run()

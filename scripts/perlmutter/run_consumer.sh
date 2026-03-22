@@ -18,15 +18,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Parse arguments
 DELAY=""
+RCVHWM=""
+RCVBUF=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --delay)
             DELAY="$2"
             shift 2
             ;;
+        --rcvhwm)
+            RCVHWM="$2"
+            shift 2
+            ;;
+        --rcvbuf)
+            RCVBUF="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--delay DELAY_MS]"
+            echo "Usage: $0 [--delay DELAY_MS] [--rcvhwm N] [--rcvbuf BYTES]"
             exit 1
             ;;
     esac
@@ -77,6 +87,16 @@ CMD=(python3 -u "$RECEIVER_SCRIPT" --endpoint "$ZMQ_ENDPOINT" --stats-interval 1
 if [[ -n "$DELAY" ]]; then
     CMD+=(--delay "$DELAY")
     echo "Message delay: ${DELAY}ms (backpressure mode)"
+fi
+
+if [[ -n "$RCVHWM" ]]; then
+    CMD+=(--rcvhwm "$RCVHWM")
+    echo "ZMQ RCVHWM: $RCVHWM"
+fi
+
+if [[ -n "$RCVBUF" ]]; then
+    CMD+=(--rcvbuf "$RCVBUF")
+    echo "ZMQ RCVBUF: $RCVBUF bytes"
 fi
 
 echo ""
