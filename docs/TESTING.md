@@ -1,8 +1,44 @@
 # EJFAT ZMQ Proxy Test Guide
 
-This document describes every test in the suite, what it validates, and how to run it on NERSC Perlmutter.
+This document describes every test in the suite and how to run it. Local tests (macOS, no Slurm) are covered first; Perlmutter-specific tests follow.
 
-## Prerequisites
+## Local Tests (no EJFAT infrastructure required)
+
+Run these on any machine with the built binaries and Python 3 + pyzmq.
+
+### Local B2B Backpressure Suite
+
+Five backpressure tests on 127.0.0.1 without a load balancer (`use_cp: false`):
+
+```bash
+./scripts/local_b2b_test.sh [--tests 1,2,3,4,5] [--quick] [--soak-duration N]
+```
+
+| Test | Scenario |
+|------|----------|
+| 1 | Baseline — no backpressure |
+| 2 | Mild BP — activates and recovers |
+| 3 | Heavy BP — sustained saturation |
+| 4 | Small-event stress (64KB) |
+| 5 | Soak — 60s under moderate BP |
+
+See `LOCAL_TESTING.md` for full details.
+
+### Local Pipeline Test (data integrity)
+
+```bash
+./scripts/local_pipeline_test.sh [--count N] [--size N] [--rate N]
+
+# With multi-worker bridge
+BRIDGE_WORKERS=4 BRIDGE_MTU=9000 ./scripts/local_pipeline_test.sh
+```
+
+Runs: `pipeline_sender.py` → `zmq_ejfat_bridge --no-cp` → proxy → `pipeline_validator.py`.
+Pass/fail is the validator exit code (0=pass, 1=errors, 2=timeout).
+
+---
+
+## Perlmutter Prerequisites
 
 ```bash
 # 1. Build and migrate the proxy container
@@ -13,6 +49,8 @@ podman-hpc migrate ejfat-zmq-proxy:latest
 export EJFAT_URI="ejfats://token@ejfat-lb.es.net:18008/lb/..."
 export E2SAR_SCRIPTS_DIR="$PWD/scripts/perlmutter"
 ```
+
+---
 
 ## Quick Start
 
@@ -94,6 +132,11 @@ N1: pipeline_sender.py  --ZMQ-->  N2: zmq_ejfat_bridge  --EJFAT-->  N3: proxy  -
 - `--count N` — messages to send (default: 1000)
 - `--size N` — message size in bytes (default: 4096)
 - `--rate N` — messages per second (default: 100)
+
+**Bridge env vars** (control `zmq_ejfat_bridge`):
+- `BRIDGE_WORKERS` — parallel ZMQ PULL worker threads (default: 1)
+- `BRIDGE_SOCKETS` — E2SAR UDP send thread pool size (default: 1)
+- `BRIDGE_MTU` — MTU in bytes (default: 1500 local / 9000 Perlmutter)
 
 **Success**: Validator exits with code 0 (all messages received, in order, intact).
 

@@ -2,7 +2,7 @@
 
 ## Current Status (2026-03-16)
 
-Build is **in progress** with the latest fix applied. A `podman build` is running in the background (task b973672). The fix being tested is **link ordering** — `${E2SAR_LIBRARIES}` moved to first position in `src/CMakeLists.txt`.
+Build **succeeded**. The critical fix was **link ordering** — `${E2SAR_LIBRARIES}` moved to first position in `src/CMakeLists.txt`.
 
 ---
 
@@ -134,18 +134,6 @@ podman run --rm ejfat-zmq-proxy:latest \
 ```
 
 ---
-
-## Next Steps (if build fails again)
-
-If the link ordering fix doesn't work, possible remaining issues:
-1. More `--as-needed` victims: check if `-lprotobuf` also gets dropped
-   - `libe2sar.a` uses protobuf, and with it first, protobuf need should be visible
-2. Static lib extraction order: `libe2sar.a` before grpc DSOs means its objects
-   are extracted when `libejfat_zmq_proxy_lib.a` creates the need for e2sar symbols
-3. If still failing: add `VERBOSE=1` to cmake build command to see exact link flags,
-   then isolate which library is being dropped by `--as-needed`
-4. Nuclear option (not recommended): add `-DCMAKE_EXE_LINKER_FLAGS=-Wl,--no-as-needed`
-   which disables as-needed for all libraries (bloats DT_NEEDED list but works)
 
 ## Key Facts for Future Debugging
 

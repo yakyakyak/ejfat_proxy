@@ -2,241 +2,214 @@
 
 ## Test Summary
 
-**Date**: March 16, 2026
-**Build Status**: ✅ SUCCESS
-**Component Tests**: ✅ PASSED
+**Last updated**: March 22, 2026
+
+| Test | Status | Date |
+|------|--------|------|
+| Build (macOS, native) | ✅ PASSED | Mar 16 |
+| Build (container, Perlmutter) | ✅ PASSED | Mar 16 |
+| ZMQ component (PUSH/PULL) | ✅ PASSED | Mar 16 |
+| E2SAR → Proxy → ZMQ (back-to-back) | ✅ PASSED | Mar 18 |
+| Full pipeline (ZMQ → bridge → EJFAT → proxy → ZMQ) | ✅ PASSED | Mar 22 |
+| Local B2B backpressure suite (5 tests) | ✅ PASSED | Mar 21 |
+| Perlmutter backpressure suite (6 tests) | ✅ PASSED | Mar 21 |
+| Multi-worker bridge (4 workers, 4 sockets) | ✅ PASSED | Mar 22 |
 
 ---
 
 ## 1. Build Verification
 
-✅ **PASSED** - Binary compiled successfully
-- Binary: `build/bin/ejfat_zmq_proxy` (1.9 MB)
-- All dependencies linked correctly
-- No compilation errors (warnings from external libraries only)
+### macOS (native)
+
+✅ **PASSED** — `ejfat_zmq_proxy` and `zmq_ejfat_bridge` compile successfully.
+
+```
+build/bin/ejfat_zmq_proxy    (1.9 MB)
+build/bin/zmq_ejfat_bridge
+build/bin/reassembler_bench
+```
+
+Dependencies: E2SAR v0.3.1, Boost 1.89 (conda), ZMQ 4.3.5 (Homebrew), gRPC 1.78 (conda).
+
+### Container (Perlmutter)
+
+✅ **PASSED** — Containerfile based on `docker.io/ibaldin/e2sar:0.3.1`. See `BUILD_NOTES.md`
+for the full dependency map and the linker-ordering fix that was required.
 
 ---
 
 ## 2. ZMQ Component Test
 
-### Test Setup
-- **Sender**: Python ZMQ PUSH socket (`scripts/test_sender.py`)
-- **Receiver**: Python ZMQ PULL socket (`scripts/test_receiver.py`)
-- **Endpoint**: tcp://localhost:5555
-- **Message Size**: 1024 bytes
-- **Target Rate**: 500 msg/s
-- **Duration**: ~7.5 seconds
+**Date**: March 16, 2026
 
-### Test Results ✅ PASSED
+Direct Python PUSH → PULL test (no E2SAR):
 
-#### Sender Performance
-```
-Messages sent: 2,985
-Duration: 7.47s
-Average rate: 399.6 msg/s
-```
+| Metric | Value |
+|--------|-------|
+| Messages sent | 2,985 |
+| Messages received | 2,985 |
+| Delivery | 100% |
+| Throughput | ~300–400 msg/s |
+| Bandwidth | 0.29 MB/s |
+| Message size | 1024 bytes |
 
-#### Receiver Performance
-```
-Messages received: 2,985
-Average rate: 298.7 msg/s
-Throughput: 0.29 MB/s
-Total bytes: 3,056,640
-```
-
-#### Verification
-- ✅ **Message Integrity**: 2,985 sent = 2,985 received (100% delivery)
-- ✅ **Connection Handling**: Proper bind/connect sequence
-- ✅ **Throughput**: Sustained ~300-400 msg/s
-- ✅ **Clean Shutdown**: Graceful termination via SIGTERM
-
-### Key Findings
-1. **Zero packet loss**: All messages delivered successfully
-2. **Consistent performance**: Rate stabilized around 300-400 msg/s
-3. **Low latency**: Immediate message delivery (no significant buffering delays)
-4. **Backpressure handling**: Sender properly handles DONTWAIT flags
+✅ Zero packet loss. Clean shutdown via SIGTERM.
 
 ---
 
-## 3. Full Proxy Integration Test
+## 3. E2SAR → Proxy → ZMQ (Back-to-Back)
 
-### Test Attempt
-Attempted to start full proxy with default configuration:
+**Date**: March 18, 2026
 
-```bash
-./build/bin/ejfat_zmq_proxy -c config/default.yaml --stats-interval 2
-```
+`e2sar_perf` (sender, UDP :19522) → `ejfat_zmq_proxy` (no CP) → `test_receiver.py` (ZMQ PULL :5555).
 
-### Result: ❌ EXPECTED FAILURE
+| Metric | Value |
+|--------|-------|
+| Events sent | 750 |
+| Events received | 750 |
+| Drops | 0 |
+| Errors | 0 |
 
-**Error**: `libc++abi: terminating due to uncaught exception of type e2sar::E2SARException`
+✅ PASSED — end-to-end delivery with zero loss.
 
-**Cause**: Default configuration uses placeholder EJFAT URI that doesn't connect to a real load balancer:
-```yaml
-uri: "ejfats://example_token@lb.example.net:443/lb/session?data=192.168.1.100&sync=192.168.1.100:19522"
-```
+**Bugs fixed** to get this test passing:
 
-**Status**: This is expected behavior without real EJFAT infrastructure
-
----
-
-## 4. Component Architecture Validation
-
-### Verified Components
-
-✅ **EventRingBuffer** (Lock-free SPSC queue)
-- Compiled successfully with Boost.Lockfree
-- No compilation errors
-
-✅ **ZmqSender** (ZMQ PUSH socket wrapper)
-- Verified via direct ZMQ test
-- High-water mark configuration compiled
-
-✅ **BackpressureMonitor** (PID controller)
-- Compiled successfully
-- E2SAR control plane integration linked
-
-✅ **EjfatZmqProxy** (Main orchestrator)
-- Compiled successfully
-- Configuration parser working (YAML loaded correctly)
-
-### Code Quality
-- No memory leaks detected in test run
-- Clean shutdown behavior
-- Proper exception handling (E2SARException caught as expected)
+1. **`recvEvent()` timeout check inverted** (`src/proxy.cpp:153`): `value()==0` means SUCCESS
+   in the E2SAR API; the code had the sense backwards, skipping real events and processing
+   timeouts as 0-byte messages.
+2. **`openAndStart()` never called** (`src/proxy.cpp:start()`): UDP sockets were never opened,
+   so no packets could be received.
 
 ---
 
-## 5. Test Scripts
+## 4. Full Pipeline Test
 
-### Created Test Tools
+**Date**: March 22, 2026
 
-1. **`scripts/test_receiver.py`** - ZMQ PULL consumer
-   - ✅ Fully functional
-   - Supports artificial delays to simulate slow consumers
-   - Provides throughput statistics
-   - Clean signal handling
+`pipeline_sender.py` (ZMQ PUSH :5556) → `zmq_ejfat_bridge --no-cp` → UDP :19522 → `ejfat_zmq_proxy` → `pipeline_validator.py` (ZMQ PULL :5555).
 
-2. **`scripts/test_sender.py`** - ZMQ PUSH producer (NEW)
-   - ✅ Fully functional
-   - Configurable rate limiting
-   - Backpressure detection
-   - Statistics reporting
+| Metric | Value |
+|--------|-------|
+| Events sent | 1,000 |
+| Events received | 1,000 |
+| Sequence errors | 0 |
+| Payload errors | 0 |
+| First-to-last span | 11 ms |
+| Burst rate | ~91,000 msg/s |
 
----
+✅ PASSED — all events delivered in order with correct payloads.
 
-## 6. Requirements for Full System Test
-
-To test the complete proxy with E2SAR integration, you need:
-
-### Infrastructure Requirements
-1. ✅ **EJFAT Load Balancer**: Running instance with accessible control plane
-2. ✅ **E2SAR Sender**: Application sending packetized data through the load balancer
-3. ✅ **Valid Configuration**: Real EJFAT URI with:
-   - Valid authentication token
-   - Correct load balancer address and port
-   - Proper data/sync IP addresses
-   - Working port ranges
-
-### Configuration Template
-```yaml
-ejfat:
-  uri: "ejfats://<REAL_TOKEN>@<LB_HOST>:443/lb/<SESSION>?data=<DATA_IP>&sync=<SYNC_IP>:<SYNC_PORT>"
-  use_cp: true
-  worker_name: "zmq-proxy-test"
-  data_port: 10000
-
-zmq:
-  push_endpoint: "tcp://*:5555"
-  send_hwm: 1000
-
-backpressure:
-  period_ms: 100
-  pid:
-    setpoint: 0.5
-    kp: 1.0
-    ki: 0.0
-    kd: 0.0
-
-buffer:
-  size: 2000
-  recv_timeout_ms: 100
-```
+**Note on 282 msg/s measurement artifact**: an earlier measurement appeared to show only 282 msg/s
+end-to-end. This was because the validator measured duration from program start, not from first
+message arrival. The validator started ~3.4s before data arrived. Actual burst throughput is ~91K
+msg/s. See `docs/RECV_BOTTLENECK_ANALYSIS.md` for the full analysis.
 
 ---
 
-## 7. Testing Checklist
+## 5. Multi-Worker Bridge
 
-### Unit Tests
-- [x] Build succeeds
+**Date**: March 22, 2026
+
+`zmq_ejfat_bridge --workers 4 --sockets 4 --mtu 9000` on localhost with 64KB events.
+
+| Metric | Value |
+|--------|-------|
+| Throughput | ~22,000 msg/s |
+| Bandwidth | ~11.5 Gbps |
+| Missing events | 0 |
+| Reassembly loss | 0 |
+
+✅ PASSED. (25K+ msg/s exceeds macOS `kern.ipc.maxsockbuf=8MB`; higher rates expected on Perlmutter.)
+
+The bridge uses `addToSendQueue()` (non-blocking) with heap-copied buffers freed via `freeEventBuffer()` callback after E2SAR's thread pool transmits them. All workers share one Segmenter (single `data_id`/`src_id`), eliminating reassembly confusion.
+
+---
+
+## 6. Local B2B Backpressure Suite
+
+**Date**: March 21, 2026
+
+`scripts/local_b2b_test.sh` runs 5 backpressure tests on 127.0.0.1 without a load balancer
+(`use_cp: false`, `with_lb_header: true`). Uses `e2sar_perf` as sender, `ejfat_zmq_proxy` as
+receiver, `test_receiver.py` as consumer.
+
+| Test | Scenario | Result |
+|------|----------|--------|
+| 1 | Baseline — no backpressure, large buffers | ✅ |
+| 2 | Mild BP — activates and recovers | ✅ |
+| 3 | Heavy BP — sustained saturation | ✅ |
+| 4 | Small-event stress (64KB) | ✅ |
+| 5 | 5-min soak — stability under moderate BP | ✅ |
+
+All assertions passed. B2B mode uses fill-level thresholds for assertions (no LB `control=` signal).
+
+---
+
+## 7. Perlmutter Backpressure Suite (LB Mode)
+
+**Date**: March 21, 2026
+
+`scripts/perlmutter/perlmutter_backpressure_suite.sh` submits 6 separate 3-node Slurm jobs,
+each with its own LB reservation. Uses `e2sar_perf` as sender, proxy as receiver, `test_receiver.py`
+as consumer.
+
+| Test | Scenario | Result |
+|------|----------|--------|
+| 1 | Baseline — no backpressure | ✅ |
+| 2 | Mild BP — activates and recovers | ✅ |
+| 3 | Heavy BP — sustained saturation | ✅ |
+| 4 | Small-event stress (64KB) | ✅ |
+| 5 | 5-min soak — stability | ✅ |
+| 6 | Dual-receiver fairness (fast + slow consumer) | ✅ |
+
+---
+
+## 8. Test Scripts
+
+| Script | Description |
+|--------|-------------|
+| `scripts/test_receiver.py` | ZMQ PULL consumer with optional delay and stats |
+| `scripts/test_sender.py` | ZMQ PUSH producer for component-level testing |
+| `scripts/pipeline_sender.py` | Sends sequence-numbered, checksummed messages |
+| `scripts/pipeline_validator.py` | Validates sequence, checksum, burst rate |
+| `scripts/local_b2b_test.sh` | 5-test B2B backpressure suite (macOS, no Slurm) |
+| `scripts/local_pipeline_test.sh` | Pipeline data-integrity test (macOS, no Slurm) |
+| `bin/reassembler_bench.cpp` | Standalone E2SAR reassembler throughput benchmark |
+
+---
+
+## 9. Performance Summary
+
+| Benchmark | Throughput | Notes |
+|-----------|-----------|-------|
+| ZMQ PUSH/PULL (Python) | 300–400 msg/s | Python overhead; baseline only |
+| E2SAR reassembler (standalone) | ~85,000 evt/s | macOS loopback, 3KB events |
+| Bridge `addToSendQueue` | ~83,000 evt/s | 4 workers, 9000 MTU, 64KB events |
+| End-to-end pipeline | ~91,000 evt/s | first-to-last span, burst mode |
+| Multi-worker bridge (net) | ~11.5 Gbps | 22K msg/s × 64KB |
+
+---
+
+## 10. Testing Checklist
+
+### Component Tests
+- [x] Build succeeds (macOS and container)
 - [x] ZMQ PUSH/PULL communication
 - [x] Message delivery (100% success rate)
-- [x] Throughput performance
-- [x] Configuration parsing
-- [ ] Backpressure PID controller (needs E2SAR)
-- [ ] Ring buffer overflow handling (needs load test)
+- [x] Configuration parsing (all 39 parameters)
+- [x] Backpressure PID controller
+- [x] Ring buffer fill and overflow detection
 
 ### Integration Tests
-- [x] ZMQ sender → receiver pipeline
-- [ ] E2SAR receiver → ring buffer → ZMQ sender (needs EJFAT infra)
-- [ ] Backpressure feedback loop (needs EJFAT load balancer)
-- [ ] Multi-consumer scenarios (needs multiple receivers)
-- [ ] High-load stress testing (needs E2SAR sender)
+- [x] E2SAR receiver → ring buffer → ZMQ sender
+- [x] ZMQ → bridge → E2SAR → proxy → ZMQ (pipeline)
+- [x] Backpressure feedback loop (LB mode)
+- [x] Multi-consumer fairness (Test 6)
+- [x] B2B mode (no LB)
 
 ### System Tests
-- [ ] End-to-end with real EJFAT load balancer
-- [ ] Sustained operation (hours/days)
-- [ ] Failure recovery
-- [ ] Performance under various loads
-
----
-
-## 8. Performance Baseline
-
-From ZMQ component test:
-- **Throughput**: 300-400 msg/s
-- **Message Size**: 1024 bytes
-- **Bandwidth**: ~0.3 MB/s
-- **Latency**: Sub-millisecond (not measured precisely)
-- **Reliability**: 100% delivery
-
-These numbers are baseline for the ZMQ transport layer only. Full system performance will depend on:
-- E2SAR receiver performance
-- Network conditions
-- Event size and complexity
-- Load balancer configuration
-
----
-
-## 9. Recommendations
-
-### Immediate Actions
-1. ✅ ZMQ components verified and working
-2. ✅ Build process documented
-3. ✅ Test scripts created
-
-### Next Steps (Requires EJFAT Infrastructure)
-1. Obtain valid EJFAT credentials and URI
-2. Set up test E2SAR sender
-3. Configure real network parameters
-4. Run end-to-end integration test
-5. Measure full-system performance
-6. Tune PID controller parameters
-7. Stress test with high data rates
-
-### Optional Enhancements
-1. Add unit tests for individual components
-2. Create mock E2SAR receiver for offline testing
-3. Add prometheus metrics export
-4. Implement health check endpoint
-5. Add configuration validation
-
----
-
-## 10. Conclusion
-
-✅ **Build and basic functionality verified**
-
-The EJFAT ZMQ Proxy compiled successfully and the ZMQ transport layer works correctly. All component tests passed with 100% message delivery and stable performance. The proxy is ready for integration testing with real EJFAT infrastructure.
-
-**Next Milestone**: Connect to production EJFAT load balancer and run end-to-end test
+- [x] End-to-end with real EJFAT load balancer (Perlmutter)
+- [x] 5-minute sustained operation under backpressure
+- [x] Multi-worker parallel send (4 workers, 11.5 Gbps)
+- [ ] Multi-day sustained operation
+- [ ] Failure recovery (LB restart, network interruption)

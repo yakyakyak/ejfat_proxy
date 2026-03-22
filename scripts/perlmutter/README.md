@@ -20,15 +20,18 @@ export E2SAR_SCRIPTS_DIR="$PWD/scripts/perlmutter"
 
 **Test types**: `normal`, `backpressure`, `pipeline`, `backpressure-suite`, `bp1`..`bp6`
 
+For B2B (no LB) tests: `b2b_backpressure_suite.sh` (no `EJFAT_URI` needed).
+
 ## File Layout
 
 ```
 scripts/perlmutter/
-  submit.sh                         # Submission wrapper for all test types
-  perlmutter_backpressure_suite.sh  # Orchestrator: submits bp_test1-6 as separate jobs
+  submit.sh                         # Submission wrapper for all LB-mode test types
+  perlmutter_backpressure_suite.sh  # LB mode: submits bp_test1-6 as separate jobs
+  b2b_backpressure_suite.sh         # B2B mode: 5 tests, no LB reservation needed
 
-  # Individual backpressure tests (self-contained Slurm scripts)
-  bp_common.sh                      # Shared helpers, assertions, cleanup
+  # LB-mode backpressure tests (self-contained Slurm scripts)
+  bp_common.sh                      # Shared helpers, assertions, cleanup (LB + B2B)
   bp_test1.sh                       # Baseline (no backpressure)
   bp_test2.sh                       # Mild backpressure (activates/recovers)
   bp_test3.sh                       # Heavy backpressure (sustained saturation)
@@ -47,12 +50,17 @@ scripts/perlmutter/
   run_zmq_ejfat_bridge.sh           # Starts ZMQ→EJFAT bridge
   run_pipeline_sender.sh            # Starts pipeline_sender.py
   run_pipeline_validator.sh         # Starts pipeline_validator.py
-  run_soak_sender.sh                # Loops minimal_sender.sh for duration
+  run_soak_sender.sh                # Loops minimal_sender.sh for duration (LB mode)
+  b2b_run_soak_sender.sh            # Loops b2b_sender.sh for duration (B2B mode)
   proxy_coordinator.sh              # Manages proxy lifecycle within srun step
+
+  # B2B mode helpers
+  b2b_generate_config.sh            # Config generator for B2B mode (no EJFAT_URI)
+  b2b_sender.sh                     # e2sar_perf wrapper for B2B (no --withcp)
 
   # LB management
   minimal_reserve.sh                # Reserve LB session
   minimal_free.sh                   # Free LB session
-  minimal_sender.sh                 # Send events via e2sar_perf
-  generate_config.sh                # Generate proxy YAML from template
+  minimal_sender.sh                 # Send events via e2sar_perf (LB mode)
+  generate_config.sh                # Generate proxy YAML from template (LB mode)
 ```

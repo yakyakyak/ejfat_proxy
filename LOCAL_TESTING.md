@@ -2,28 +2,25 @@
 
 ## Overview
 
-This guide explains how to run the EJFAT ZMQ Proxy locally without requiring a real EJFAT load balancer or control plane connection. This is useful for:
+All tests below run entirely on localhost (127.0.0.1) without a real EJFAT load balancer or control plane. Useful for:
+
 - Development and debugging
-- Testing E2SAR integration
-- Validating ZMQ pipeline
-- Local experimentation
+- Validating E2SAR reassembly and ZMQ pipeline
+- Backpressure logic testing
+- Data-integrity / regression testing
 
 ## Configuration
 
-Use the provided `config/local_test.yaml` configuration:
+Local testing uses `config/local_test.yaml` or generates a config on the fly via `perlmutter_b2b.yaml.template`.
+
+Key settings for local mode:
 
 ```yaml
 ejfat:
-  # URI must be properly formatted but doesn't connect to real LB
   uri: "ejfat://local-test@127.0.0.1:9876/lb/1?data=127.0.0.1:19522&sync=127.0.0.1:19523"
-
-  # CRITICAL: Disable control plane
-  use_cp: false
-
-  # Tell reassembler to expect LB headers (no real LB to strip them)
-  with_lb_header: true
-
-  # Local UDP port to receive data
+  use_cp: false           # Disable gRPC control plane
+  with_lb_header: true    # Expect LB headers (added by segmenter, not stripped by real LB)
+  data_ip: "127.0.0.1"   # macOS requires explicit IP
   data_port: 19522
 
 zmq:
@@ -34,212 +31,235 @@ buffer:
   size: 500
 ```
 
-## Key Settings for Local Testing
+### Key settings explained
 
-### 1. Control Plane: DISABLED
-```yaml
-use_cp: false
-```
-- Disables all gRPC communication with EJFAT load balancer
-- No registration, no sendState calls
-- Backpressure monitoring runs locally only
+- **`use_cp: false`** — disables all gRPC communication; no LB registration, no sendState calls
+- **`with_lb_header: true`** — tells the E2SAR Reassembler to expect and process LB headers that were added by the Segmenter (normally stripped by the real LB)
+- **`data_ip: "127.0.0.1"`** — required on macOS; auto-detection is not supported
 
-### 2. LB Header Handling
-```yaml
-with_lb_header: true
-```
-- Required for direct segmenter-to-reassembler testing
-- Tells E2SAR reassembler to expect and ignore load balancer headers
-- Normally these headers are stripped by the real load balancer
+---
 
-### 3. URI Format
-Must still be properly formatted even though it's not used:
-```
-ejfat://token@host:port/lb/id?data=addr:port&sync=addr:port
-```
+## Test Options
 
-## Running Locally
+### Option 1: Manual component-by-component
 
-### Start the Proxy
+Start each component in its own terminal.
 
+**Terminal 1 — Proxy:**
 ```bash
-cd build
-./bin/ejfat_zmq_proxy -c ../config/local_test.yaml --stats-interval 2
+./build/bin/ejfat_zmq_proxy -c config/local_test.yaml --stats-interval 2
 ```
 
-You should see:
+Expected output:
 ```
-Loading configuration from: ../config/local_test.yaml
-Initializing EJFAT ZMQ Proxy...
-  Ring buffer: 500 events
-  LB manager skipped (CP disabled)  ✓
-  E2SAR reassembler initialized     ✓
-    URI: ejfat://local-test@127.0.0.1:9876/lb/1?...
-    Port: 19522
-    Use CP: false                     ✓
-    With LB header: true              ✓
-  ZMQ sender created
-  Backpressure monitor created
-Initialization complete
-
-Starting proxy components...
-ZMQ sender bound to tcp://*:5555 (HWM=100)
-Backpressure monitor started (period=100ms, CP=disabled)  ✓
 All components started
 Receiver thread started
+Monitor #1: fill=0%
 ```
 
-### Start a ZMQ Consumer
-
-In another terminal:
+**Terminal 2 — ZMQ consumer:**
 ```bash
-python3 scripts/test_receiver.py --endpoint tcp://localhost:5555
+python3 -u scripts/test_receiver.py --endpoint tcp://localhost:5555
 ```
 
-### Send Data via E2SAR Segmenter
-
-You need to run an E2SAR segmenter that sends to `127.0.0.1:19522`. Example Python code:
-
-```python
-import e2sar_py
-
-# Configure segmenter
-seg_uri = e2sar_py.EjfatURI(
-    uri="ejfat://local-test@127.0.0.1:9876/lb/1?data=127.0.0.1:19522&sync=127.0.0.1:19523",
-    tt=e2sar_py.EjfatURI.TokenType.instance
-)
-
-sflags = e2sar_py.DataPlane.Segmenter.SegmenterFlags()
-sflags.useCP = False  # Match proxy setting
-sflags.syncPeriodMs = 1000
-
-segmenter = e2sar_py.DataPlane.Segmenter(seg_uri, data_id=1, event_src_id=1, sflags)
-
-# Send test event
-test_data = b"Hello from E2SAR!"
-result = segmenter.sendEvent(test_data)
+**Terminal 3 — Sender (`e2sar_perf`):**
+```bash
+/path/to/e2sar/build/bin/e2sar_perf \
+  --send \
+  --ip 127.0.0.1 \
+  --port 19522 \
+  --rate -1 \
+  --num 100 \
+  --withcp false
 ```
+
+---
+
+### Option 2: Local B2B Backpressure Suite
+
+Runs 5 backpressure tests automatically. Uses `e2sar_perf` as sender and `test_receiver.py` as consumer.
+
+```bash
+cd /path/to/ejfat_proxy
+./scripts/local_b2b_test.sh
+
+# Run specific tests only
+./scripts/local_b2b_test.sh --tests 1,3
+
+# Quick mode (shorter timeouts)
+./scripts/local_b2b_test.sh --quick
+
+# Longer soak for Test 5
+./scripts/local_b2b_test.sh --soak-duration 120
+```
+
+| Test | Scenario | What it validates |
+|------|----------|-------------------|
+| 1 | Baseline — large buffers, fast consumer | No backpressure triggered; fill stays low |
+| 2 | Mild BP — small buffers + slow consumer | BP activates and recovers |
+| 3 | Heavy BP — very slow consumer | Sustained saturation, fill peaks >80% |
+| 4 | Small-event stress (64KB) | Correct handling of small events under pressure |
+| 5 | Soak — moderate BP for 60s | Stability, no memory leak or deadlock |
+
+B2B mode assertions check buffer fill-level thresholds (no LB `control=` signal, since CP is disabled).
+
+---
+
+### Option 3: Local Pipeline Test (data-integrity)
+
+Full end-to-end pipeline: `pipeline_sender.py` → `zmq_ejfat_bridge --no-cp` → UDP → `ejfat_zmq_proxy` → `pipeline_validator.py`. Validates sequence numbers and checksums.
+
+```bash
+./scripts/local_pipeline_test.sh
+
+# Custom parameters
+./scripts/local_pipeline_test.sh --count 2000 --size 8192
+
+# With multi-worker bridge (BRIDGE_WORKERS env var)
+BRIDGE_WORKERS=4 BRIDGE_MTU=9000 ./scripts/local_pipeline_test.sh
+
+# Env vars available
+BRIDGE_WORKERS=1       # ZMQ PULL worker threads in bridge (default: 1)
+BRIDGE_SOCKETS=1       # E2SAR UDP send sockets (default: 1)
+BRIDGE_MTU=1500        # MTU (default: 1500)
+RECV_THREADS=1         # E2SAR receiver threads in proxy (default: 1)
+RCV_BUF_SIZE=3145728   # UDP socket receive buffer in bytes (default: 3 MB)
+```
+
+Pipeline topology:
+```
+pipeline_sender.py (ZMQ PUSH :5556)
+    |
+    v
+zmq_ejfat_bridge --no-cp (ZMQ PULL -> E2SAR Segmenter -> UDP :19522)
+    |
+    v
+ejfat_zmq_proxy (E2SAR Reassembler -> ring buffer -> ZMQ PUSH :5555)
+    |
+    v
+pipeline_validator.py (ZMQ PULL)
+```
+
+Pass/fail is determined by the validator exit code (0=PASS, 1=errors, 2=timeout).
+
+---
+
+## zmq_ejfat_bridge — Local Usage
+
+The bridge has a `--no-cp` flag for local and B2B testing:
+
+```bash
+./build/bin/zmq_ejfat_bridge \
+  --uri "ejfat://local@127.0.0.1:9876/lb/1?data=127.0.0.1:19522&sync=127.0.0.1:19523" \
+  --zmq-endpoint tcp://localhost:5556 \
+  --mtu 1500 \
+  --sockets 1 \
+  --workers 1 \
+  --no-cp
+```
+
+- **`--no-cp`**: disables gRPC LB registration and sync packets
+- **`--workers N`**: N parallel ZMQ PULL threads, each with its own socket (default: 1)
+- **`--sockets N`**: E2SAR internal UDP send thread pool size (default: 16; use 1 for local)
+
+---
 
 ## What Works in Local Mode
 
-✅ **E2SAR Reassembly**
-- Receives UDP packets
-- Reassembles events
-- Writes to ring buffer
-
-✅ **Ring Buffer**
-- Lock-free SPSC queue
-- Fill level monitoring
-- Overflow detection
-
-✅ **ZMQ Output**
-- PUSH socket to consumers
-- High-water mark backpressure
-- Statistics tracking
-
-✅ **Backpressure Monitoring** (Local only)
-- PID controller computation
-- Fill level tracking
-- No sendState to LB (CP disabled)
+✅ **E2SAR reassembly** — receives UDP, reassembles events, writes to ring buffer
+✅ **Ring buffer** — lock-free SPSC queue, fill-level monitoring, overflow detection
+✅ **ZMQ output** — PUSH socket to consumers, HWM backpressure
+✅ **Backpressure monitoring** — PID computation and fill-level logging (no sendState to LB)
+✅ **zmq_ejfat_bridge** — ZMQ→EJFAT segmentation, single or multi-worker
+✅ **Pipeline validator** — sequence + checksum verification, burst rate metrics
 
 ## What Doesn't Work in Local Mode
 
-❌ **Control Plane Communication**
-- No gRPC connection to load balancer
-- No worker registration
-- No sendState calls
-- No dynamic slot assignment
+❌ **Control plane** — no gRPC, no worker registration, no sendState, no dynamic slot assignment
+❌ **Load distribution** — no LB coordination; data goes directly to the proxy's IP:port
 
-❌ **Load Distribution**
-- No coordination with load balancer
-- Can only receive data sent directly to local IP:port
-- No multi-worker load balancing
+---
 
 ## Monitoring
 
-### Statistics Output
+### Proxy stats
 
-The proxy prints stats at regular intervals:
 ```
 === Proxy Statistics ===
-Events received:  74
+Events received:  1000
 Events dropped:   0
-Buffer fill:      14.6%
-Buffer size:      73 / 500
-ZMQ sends:        1
-ZMQ blocked:      1 (100.0%)
-Last fill%:       14.2%
+Buffer fill:      0.0%
+Buffer size:      0 / 500
+ZMQ sends:        1000
+ZMQ blocked:      0 (0.0%)
+Last fill%:       0.0%
 Last control:     0.000
 ========================
 ```
 
-### Local Backpressure Monitor
+### Backpressure monitor (CP disabled)
 
-With CP disabled, the monitor still runs but only logs locally:
 ```
-Monitor #1: fill=0%
-Monitor #51: fill=9.400%
+Monitor #1:  fill=0%
+Monitor #51: fill=9.4%
 ```
 
-No sendState calls are made to the load balancer.
+No sendState calls are made.
+
+### Bridge stats (at shutdown)
+
+```
+=== Bridge Statistics ===
+Workers                   : 1
+Events received from ZMQ  : 1000
+Events enqueued to E2SAR  : 1000
+Events dropped (q full)   : 0
+Segmenter fragments sent  : 3000
+Segmenter send errors     : 0
+=========================
+```
+
+---
 
 ## Troubleshooting
 
+### No events received
+
+- Verify `data_ip: "127.0.0.1"` in proxy config (required on macOS)
+- Confirm E2SAR sender is targeting 127.0.0.1:19522
+- Ensure proxy `use_cp: false` and `with_lb_header: true` match the sender's settings
+
 ### "Capability to determine outgoing address not supported"
-- This was fixed by using explicit IP address (127.0.0.1)
-- The proxy now hardcodes localhost for local testing
 
-### No Events Received
-- Check E2SAR segmenter is sending to correct address/port (127.0.0.1:19522)
-- Verify segmenter has `useCP=False`
-- Ensure firewall allows localhost UDP traffic
+- Fixed by setting explicit `data_ip: "127.0.0.1"` in the YAML config
 
-### ZMQ Blocked
-- This is normal if no ZMQ consumer is connected
-- Start the test receiver to consume events
-- Buffer will fill up without consumer
+### ZMQ blocked / buffer fill climbing
 
-## Comparing Local vs Production
+- Normal if no ZMQ consumer is connected
+- Start `test_receiver.py` to consume events
 
-| Feature | Local Mode (`use_cp: false`) | Production (`use_cp: true`) |
-|---------|---------------------------|----------------------------|
-| Control Plane | Disabled | Enabled via gRPC |
-| Load Balancer | None | Required |
-| Worker Registration | Skipped | Required |
-| SendState | Disabled | Every 100ms |
-| LB Headers | Expected (withLBHeader: true) | Stripped by LB |
-| Data Source | Direct UDP to localhost | LB distributes packets |
-| Multi-worker | No | Yes |
+### Bridge events dropped
 
-## Next Steps
+- Increase `--sockets` (more E2SAR UDP threads)
+- Or reduce send rate / event count
 
-After validating local functionality:
+---
 
-1. **Update URI** with real EJFAT credentials
-2. **Enable CP** (`use_cp: true`)
-3. **Remove with_lb_header** (set to `false`)
-4. **Configure worker_name** for identification
-5. **Test with real load balancer**
+## Local vs Production Comparison
 
-See `BUILD_STATUS.md` and `TEST_REPORT.md` for production testing instructions.
+| Feature | Local (`use_cp: false`) | Production (`use_cp: true`) |
+|---------|------------------------|----------------------------|
+| Control plane | Disabled | Enabled via gRPC |
+| Load balancer | None | Required |
+| Worker registration | Skipped | Required |
+| sendState | Disabled | Every 100ms |
+| LB headers | Passed through (`with_lb_header: true`) | Stripped by LB |
+| Data source | Direct UDP to local IP:port | LB distributes packets |
+| Multi-worker proxy | Not applicable | Yes (via LB weight) |
 
-## Code Changes for Local Testing
-
-The following code changes enable local testing:
-
-1. **Config Support** (`config.hpp`, `config.cpp`)
-   - Added `with_lb_header` flag to EjfatConfig
-   - Parse flag from YAML
-
-2. **Proxy Initialization** (`proxy.cpp`)
-   - Skip LB manager creation when `use_cp=false`
-   - Pass ReassemblerFlags to E2SAR
-   - Use explicit IP address for macOS compatibility
-   - Better error handling with try-catch
-
-3. **Backpressure Monitor** (`backpressure_monitor.cpp`)
-   - Check for null LB manager
-   - Skip sendState when CP disabled
-   - Local-only monitoring mode
-
-These changes maintain full compatibility with production use while enabling local development.
+After validating locally:
+1. Update URI with real EJFAT credentials
+2. Enable CP (`use_cp: true`)
+3. Set `with_lb_header: false`
+4. Set `worker_name` for identification
+5. Test with real load balancer (see `docs/TESTING.md`)

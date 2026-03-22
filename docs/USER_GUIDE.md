@@ -125,6 +125,7 @@ grep "Worker registered" proxy.log
 | `BP_LOG_INTERVAL` | 100 | Log backpressure state every N reports |
 | `DATA_PORT` | 10000 | UDP port for LB data plane |
 | `RECV_THREADS` | 4 | E2SAR receiver threads |
+| `RCV_BUF_SIZE` | 3145728 | UDP socket receive buffer (bytes) |
 
 ### Step 4: Start the Consumer(s)
 
@@ -245,6 +246,10 @@ NODE_VALIDATOR=${NODES[3]} # pipeline_validator.py
 # Start bridge (connects to sender, segments into EJFAT)
 export SENDER_NODE=$NODE_SENDER
 export SENDER_ZMQ_PORT=5556
+# Optional: tune bridge parallelism
+export BRIDGE_WORKERS=1       # ZMQ PULL worker threads (default: 1)
+export BRIDGE_SOCKETS=1       # E2SAR UDP send thread pool (default: 1)
+export BRIDGE_MTU=9000        # MTU in bytes (default: 9000 on Perlmutter)
 srun --nodes=1 --ntasks=1 --nodelist=$NODE_BRIDGE \
     bash -c "cd $PWD && $E2SAR_SCRIPTS_DIR/run_zmq_ejfat_bridge.sh" \
     > bridge_wrapper.log 2>&1 &

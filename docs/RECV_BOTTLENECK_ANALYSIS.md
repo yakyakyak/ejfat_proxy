@@ -45,7 +45,7 @@ The proxy's own timing confirms this:
 
 | Component | Metric | Value |
 |---|---|---|
-| Bridge `sendEvent()` | All 1000 events sent | 12ms (83K evt/s) |
+| Bridge `addToSendQueue()` | All 1000 events sent | 12ms (83K evt/s) |
 | E2SAR recv thread | 3000 fragments reassembled | ~11ms |
 | Proxy `getEvent()` | Avg dequeue latency | 0µs |
 | Ring buffer push | Overhead | negligible |
@@ -61,7 +61,7 @@ The proxy's own timing confirms this:
 | Insufficient recv threads | 1 → 4 threads | No change |
 | ZMQ sender blocking | Checked blocked send ratio | 0% blocked |
 | Ring buffer backpressure | Checked fill level | Always 0% |
-| Bridge `sendEvent()` too slow | Instrumented timing | 83K evt/s (not bottleneck) |
+| Bridge send throughput | Instrumented timing | 83K evt/s (not bottleneck) |
 | E2SAR recv thread slow | `reassembler_bench` standalone | 85K evt/s (not bottleneck) |
 | Proxy thread interference | Disabled sender/monitor | No change (all fast) |
 
@@ -78,3 +78,7 @@ The proxy currently uses `getEvent()` + 50µs polling, which avoids the race ent
 ## Fix applied to validator
 
 Added `First-to-last span` and `Burst rate` metrics to `pipeline_validator.cpp` to measure actual message delivery rate independent of startup timing.
+
+## Subsequent bridge refactor (March 22, 2026)
+
+The bridge was later refactored from single-threaded `sendEvent()` to N-worker `addToSendQueue()` (see commit history). The analysis findings remain valid — the measurement artifact was the bottleneck, not the send path. The new bridge design improves throughput further: 4 workers + 4 sockets achieved ~11.5 Gbps (22K msg/s × 64KB events) on macOS loopback.
