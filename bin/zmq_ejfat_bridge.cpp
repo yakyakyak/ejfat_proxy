@@ -145,10 +145,19 @@ int main(int argc, char* argv[]) {
     uint64_t events_sent     = 0;
     uint64_t events_dropped  = 0;
 
+    // Timing diagnostics
+    using Clock = std::chrono::steady_clock;
+    int64_t zmq_recv_us_total = 0;
+    int64_t send_event_us_total = 0;
+    int64_t send_event_us_max = 0;
+    Clock::time_point first_recv_time;
+    Clock::time_point last_send_time;
+
     auto last_stats = std::chrono::steady_clock::now();
 
     while (!g_stop.load()) {
         zmq::message_t msg;
+        auto t_zmq = Clock::now();
         auto rr = sock.recv(msg, zmq::recv_flags::dontwait);
 
         if (!rr) {
@@ -174,17 +183,29 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        auto t_after_zmq = Clock::now();
+        zmq_recv_us_total += std::chrono::duration_cast<std::chrono::microseconds>(
+            t_after_zmq - t_zmq).count();
+
         events_received++;
+        if (events_received == 1)
+            first_recv_time = t_after_zmq;
 
         // Use sendEvent (synchronous) rather than addToSendQueue (async/zero-copy).
         // addToSendQueue holds a raw pointer to msg.data() without copying; msg is
         // destroyed at the end of this loop iteration, leaving E2SAR with a dangling
         // pointer when the send queue backs up at high throughput.
         // sendEvent copies/sends the data before returning, so msg lifetime is safe.
+        auto t_send = Clock::now();
         auto res = segmenter.sendEvent(
             static_cast<uint8_t*>(msg.data()),
             msg.size()
         );
+        auto t_after_send = Clock::now();
+        auto send_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            t_after_send - t_send).count();
+        send_event_us_total += send_us;
+        if (send_us > send_event_us_max) send_event_us_max = send_us;
 
         if (!res) {
             events_dropped++;
@@ -194,6 +215,7 @@ int main(int argc, char* argv[]) {
             }
         } else {
             events_sent++;
+            last_send_time = t_after_send;
         }
 
         if (stats_interval > 0 && events_received % 10000 == 0) {
@@ -206,12 +228,22 @@ int main(int argc, char* argv[]) {
     segmenter.stopThreads();
 
     auto sendStats = segmenter.getSendStats();
+    auto total_send_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        last_send_time - first_recv_time).count();
     std::cout << "\n=== Bridge Statistics ===" << std::endl;
     std::cout << "Events received from ZMQ  : " << events_received << std::endl;
     std::cout << "Events sent via EJFAT     : " << events_sent     << std::endl;
     std::cout << "Events dropped            : " << events_dropped  << std::endl;
     std::cout << "Segmenter fragments sent  : " << sendStats.msgCnt << std::endl;
     std::cout << "Segmenter send errors     : " << sendStats.errCnt << std::endl;
+    std::cout << "=== Bridge Timing ===" << std::endl;
+    std::cout << "Total send duration (ms)  : " << total_send_duration_ms << std::endl;
+    if (events_sent > 0) {
+        std::cout << "Avg zmq_recv (us)         : " << (zmq_recv_us_total / (int64_t)events_received) << std::endl;
+        std::cout << "Avg sendEvent (us)        : " << (send_event_us_total / (int64_t)events_sent) << std::endl;
+        std::cout << "Max sendEvent (us)        : " << send_event_us_max << std::endl;
+        std::cout << "Effective send rate       : " << (events_sent * 1000 / std::max(total_send_duration_ms, (int64_t)1)) << " evt/s" << std::endl;
+    }
     std::cout << "=========================" << std::endl;
 
     return (events_dropped > 0) ? 2 : 0;
