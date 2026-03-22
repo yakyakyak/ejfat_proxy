@@ -121,6 +121,8 @@ int main(int argc, char* argv[]) {
 
     auto start_time    = std::chrono::steady_clock::now();
     auto last_recv     = start_time;
+    std::chrono::steady_clock::time_point first_msg_time;
+    std::chrono::steady_clock::time_point last_msg_time;
     auto timeout_dur   = std::chrono::seconds(timeout_s);
 
     int exit_code = 0;
@@ -165,6 +167,8 @@ int main(int argc, char* argv[]) {
         }
         seen_seqs.insert(seq);
         received++;
+        if (received == 1) first_msg_time = std::chrono::steady_clock::now();
+        last_msg_time = std::chrono::steady_clock::now();
 
         // Payload check
         if (!no_payload_check) {
@@ -215,6 +219,12 @@ int main(int argc, char* argv[]) {
     std::cout << "Duplicates        : " << duplicates << std::endl;
     std::cout << "Payload errors    : " << payload_errors << std::endl;
     std::cout << "Result            : " << (ok ? "PASS" : "FAIL") << std::endl;
+    if (received > 1) {
+        double msg_span = std::chrono::duration<double>(last_msg_time - first_msg_time).count();
+        double burst_rate = (msg_span > 0) ? ((received - 1) / msg_span) : 0;
+        std::cout << "First-to-last span: " << msg_span << "s" << std::endl;
+        std::cout << "Burst rate        : " << static_cast<int>(burst_rate) << " msg/s" << std::endl;
+    }
     std::cout << "==========================" << std::endl;
 
     if (!ok && exit_code == 0)
