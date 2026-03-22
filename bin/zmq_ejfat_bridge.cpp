@@ -52,7 +52,9 @@ int main(int argc, char* argv[]) {
         ("sender-ip", po::value<std::string>()->default_value(""),
                      "Explicit sender IP to register with LB CP (default: auto-detect via addSenderSelf)")
         ("no-cp",    po::bool_switch()->default_value(false),
-                     "Disable control plane (no LB registration, no sync packets; for B2B/local testing)");
+                     "Disable control plane (no LB registration, no sync packets; for B2B/local testing)")
+        ("multiport", po::bool_switch()->default_value(false),
+                     "Use consecutive destination ports (socket 0->basePort, 1->basePort+1, ...) for B2B multi-thread testing");
 
     po::variables_map vm;
     try {
@@ -107,6 +109,7 @@ int main(int argc, char* argv[]) {
     sflags.mtu            = vm["mtu"].as<uint16_t>();
     sflags.numSendSockets = static_cast<size_t>(vm["sockets"].as<int>());
     sflags.warmUpMs       = no_cp ? 0 : 500;
+    sflags.multiPort      = vm["multiport"].as<bool>();
 
     e2sar::Segmenter segmenter(
         uri,

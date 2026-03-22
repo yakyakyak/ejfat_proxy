@@ -53,7 +53,7 @@ EJFAT_URI="ejfat://b2b-test@${DATA_IP}:9876/lb/1?data=${DATA_IP}:${DATA_PORT}&sy
 
 # Config template defaults (non-test-specific)
 SLURM_JOB_ID="local"
-RECV_THREADS="1"
+RECV_THREADS="${RECV_THREADS:-1}"
 RCV_BUF_SIZE="3145728"
 VALIDATE_CERT="false"
 USE_IPV6="false"
@@ -80,6 +80,8 @@ PROGRESS_INTERVAL="1000"
 SENDER_COUNT="1000"
 SENDER_SIZE="4096"
 SENDER_RATE="0"   # 0 = unlimited
+BRIDGE_SOCKETS="${BRIDGE_SOCKETS:-1}"
+BRIDGE_MULTIPORT="${BRIDGE_MULTIPORT:-false}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -230,12 +232,16 @@ start_bridge() {
     local log="$RUN_DIR/bridge.log"
     : > "$log"
 
+    local multiport_flag=""
+    [[ "$BRIDGE_MULTIPORT" == "true" ]] && multiport_flag="--multiport"
+
     "$BRIDGE_BIN" \
         --uri "$EJFAT_URI" \
         --zmq-endpoint "tcp://localhost:${SENDER_ZMQ_PORT}" \
         --mtu 1500 \
-        --sockets 1 \
+        --sockets "$BRIDGE_SOCKETS" \
         --no-cp \
+        $multiport_flag \
         >> "$log" 2>&1 &
     BRIDGE_PID=$!
     echo "Bridge started (PID=$BRIDGE_PID)"
