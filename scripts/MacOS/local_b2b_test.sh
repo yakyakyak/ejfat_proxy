@@ -6,7 +6,7 @@
 #
 # Prerequisites:
 #   - build/bin/ejfat_zmq_proxy  (built locally)
-#   - /Users/yak/Projects/E2SAR/build/bin/e2sar_perf  (or set E2SAR_PERF env)
+#   - e2sar_perf binary: set E2SAR_PERF, or E2SAR_ROOT (points to E2SAR source/install), or have e2sar_perf on PATH
 #   - python3 with zmq package
 #
 # Usage (run from project root):
@@ -22,17 +22,27 @@
 set -uo pipefail
 
 #=============================================================================
-# Resolve project root (script must be in <root>/scripts/)
+# Resolve project root (script is in <root>/scripts/MacOS/)
 #=============================================================================
 SCRIPT_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 #=============================================================================
 # Binary paths (overridable via environment)
 #=============================================================================
 PROXY_BIN="${PROXY_BIN:-$PROJECT_ROOT/build/bin/ejfat_zmq_proxy}"
-E2SAR_PERF_BIN="${E2SAR_PERF:-/Users/yak/Projects/E2SAR/build/bin/e2sar_perf}"
-RECEIVER="$PROJECT_ROOT/scripts/test_receiver.py"
+
+# Locate e2sar_perf: explicit env > E2SAR_ROOT build tree > PATH
+if [[ -n "${E2SAR_PERF:-}" ]]; then
+    E2SAR_PERF_BIN="$E2SAR_PERF"
+elif [[ -n "${E2SAR_ROOT:-}" && -x "${E2SAR_ROOT}/build/bin/e2sar_perf" ]]; then
+    E2SAR_PERF_BIN="${E2SAR_ROOT}/build/bin/e2sar_perf"
+elif command -v e2sar_perf >/dev/null 2>&1; then
+    E2SAR_PERF_BIN="$(command -v e2sar_perf)"
+else
+    E2SAR_PERF_BIN=""
+fi
+RECEIVER="$PROJECT_ROOT/scripts/MacOS/test_receiver.py"
 TEMPLATE="$PROJECT_ROOT/config/perlmutter_b2b.yaml.template"
 BP_COMMON="$PROJECT_ROOT/scripts/perlmutter/bp_common.sh"
 
