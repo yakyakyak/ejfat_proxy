@@ -262,4 +262,4 @@ After validating locally:
 2. Enable CP (`use_cp: true`)
 3. Set `with_lb_header: false`
 4. Set `worker_name` for identification
-5. Test with real load balancer (see `docs/TESTING.md`)
+5. Test with real load balancer (see `../test/TESTING.md`)

@@ -380,7 +380,7 @@ python3 scripts/pipeline_sender.py \
 3. Start `zmq_ejfat_bridge` **without** `--no-cp`, using the same URI.
 4. Your ZMQ source and consumer are unchanged.
 
-See [`docs/USER_TESTING_GUIDE.md`](USER_TESTING_GUIDE.md) for full Perlmutter / Slurm instructions.
+See [USER_TESTING_GUIDE.md](USER_TESTING_GUIDE.md) for full Perlmutter / Slurm instructions.
 
 ---
 

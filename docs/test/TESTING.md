@@ -22,7 +22,7 @@ Five backpressure tests on 127.0.0.1 without a load balancer (`use_cp: false`):
 | 4 | Small-event stress (64KB) |
 | 5 | Soak — 60s under moderate BP |
 
-See `LOCAL_TESTING.md` for full details.
+See `../user/LOCAL_TESTING.md` for full details.
 
 ### Local Pipeline Test (data integrity)
 

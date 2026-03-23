@@ -48,7 +48,7 @@ build/bin/reassembler_bench
 ```
 
 Dependencies: E2SAR v0.3.1, Boost 1.89 (conda), ZMQ 4.3.5 (Homebrew), gRPC 1.78 (conda).
-See `BUILD_STATUS.md` for the full dependency map and build command.
+See `../dev/BUILD_STATUS.md` for the full dependency map and build command.
 
 ---
 
@@ -139,7 +139,7 @@ B2B mode uses fill-level thresholds for assertions (no LB `control=` signal in C
 **Note on 282 msg/s artifact**: An earlier measurement showed 282 msg/s because the
 validator measured duration from program start, not first message. The validator started
 ~3.4s before data arrived. Actual burst throughput is ~91K msg/s (1,000 events in 11 ms).
-See `docs/RECV_BOTTLENECK_ANALYSIS.md`.
+See `RECV_BOTTLENECK_ANALYSIS.md`.
 
 ---
 

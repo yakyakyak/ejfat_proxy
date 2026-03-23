@@ -15,28 +15,26 @@ build/bin/reassembler_bench             — standalone E2SAR reassembler benchma
 ### Build Issues Resolved
 
 1. **Protobuf API Mismatch**: E2SAR library expected protobuf API with fields like `syncIpv4Address()`, `dataMinPort()`. The old generated protobuf files had different field names.
-   - **Solution**: Regenerated protobuf files from `/Users/yak/Projects/E2SAR/udplbd2/proto/loadbalancer/loadbalancer.proto`
+   - **Solution**: Regenerated protobuf files from E2SAR's `udplbd2/proto/loadbalancer/loadbalancer.proto`. Use `-DPROTOBUF_HEADERS=e2sar` or `-DPROTOBUF_HEADERS=regenerate` to keep in sync with any E2SAR version.
 
 2. **Protobuf Version Mismatch**: Generated files required protobuf 6.33.5, but system had 6.33.4.
-   - **Solution**: Modified version check in `grpc/loadbalancer.pb.h` to accept both 6.33.4 and 6.33.5
+   - **Solution**: Widened the version check in `grpc/loadbalancer.pb.h` to accept 6.33.4–6.33.5. For other versions, use `-DPROTOBUF_HEADERS=e2sar` to reuse headers from the E2SAR build tree instead.
 
-3. **Include Path Configuration**: Added conda environment's include paths.
-   - **Solution**: Updated `CMakeLists.txt` to include `/opt/anaconda3/envs/e2sar-dev/include`
+3. **Include Path Configuration**: gRPC/protobuf include paths must match the build environment.
+   - **Solution**: Use `scripts/setup_env.sh` to assemble `PKG_CONFIG_PATH` automatically, or set it manually before running cmake.
 
 ## Build Commands
 
-### macOS (native)
+### Native build (any platform)
 
 ```bash
-cd build
-PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/opt/anaconda3/envs/e2sar-dev/lib/pkgconfig" \
-cmake .. \
-  -DE2SAR_ROOT=/Users/yak/Projects/E2SAR \
-  -DE2SAR_LIB_PATH=/Users/yak/Projects/E2SAR/build/src/libe2sar.a
-make -j8
+export E2SAR_ROOT=/path/to/E2SAR
+source scripts/setup_env.sh          # sets PKG_CONFIG_PATH for your platform
+cmake --preset macos                  # or: linux, container
+cmake --build build -j
 ```
 
-`-DE2SAR_ROOT` and `-DE2SAR_LIB_PATH` are required. The default `/usr/local` E2SAR uses deprecated `boost::asio::io_service` which conflicts with conda Boost 1.89.
+Use `-DPROTOBUF_HEADERS=e2sar` (the preset default) to reuse headers from your E2SAR build — this avoids the protobuf version lock in the checked-in `grpc/` headers.
 
 ### Container (Perlmutter)
 
@@ -50,16 +48,15 @@ See `BUILD_NOTES.md` for the full container dependency map, linker-ordering fix,
 ### Reconfigure / clean rebuild
 
 ```bash
-cd build
-rm CMakeCache.txt
-PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/opt/anaconda3/envs/e2sar-dev/lib/pkgconfig" \
-cmake .. -DE2SAR_ROOT=... -DE2SAR_LIB_PATH=...
-make -j8
+rm build/CMakeCache.txt
+source scripts/setup_env.sh
+cmake --preset macos    # re-runs configuration with preset defaults
+cmake --build build -j
 ```
 
 ## Testing
 
-Full test results are in `TEST_REPORT.md`. Quick summary:
+Full test results are in `../test/TEST_REPORT.md`. Quick summary:
 
 - ✅ ZMQ component test (2,985 messages, 100% delivery)
 - ✅ E2SAR → Proxy → ZMQ back-to-back (750 events, 0 drops)
