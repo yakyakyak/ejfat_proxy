@@ -38,16 +38,44 @@ The bridge (N parallel ZMQ PULL workers) enqueues events into a single shared E2
 
 ## Building
 
+### Container build (recommended, works everywhere)
+
 ```bash
-mkdir build && cd build
-PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/opt/anaconda3/envs/e2sar-dev/lib/pkgconfig" \
-cmake .. \
-  -DE2SAR_ROOT=/path/to/e2sar \
-  -DE2SAR_LIB_PATH=/path/to/e2sar/build/src/libe2sar.a
-make -j8
+podman build -t ejfat-zmq-proxy:latest .
+# or: docker build -t ejfat-zmq-proxy:latest .
 ```
 
-`-DE2SAR_ROOT` and `-DE2SAR_LIB_PATH` are required to point at the correct E2SAR build. See `BUILD_NOTES.md` for container builds on Perlmutter.
+### Native build (any platform)
+
+**Prerequisites**: E2SAR v0.3.1 built or installed, CMake ≥ 3.21, Boost ≥ 1.81, ZeroMQ, yaml-cpp, gRPC++ + Protobuf (version matching your E2SAR build).
+
+1. Set `E2SAR_ROOT` and source the environment helper (sets `PKG_CONFIG_PATH` for your platform):
+   ```bash
+   export E2SAR_ROOT=/path/to/E2SAR
+   source scripts/setup_env.sh
+   ```
+
+2. Configure and build using a preset:
+   ```bash
+   cmake --preset macos    # macOS
+   cmake --preset linux    # Linux
+   cmake --build build -j
+   ```
+
+   Or configure manually:
+   ```bash
+   cmake -B build -S . \
+     -DE2SAR_ROOT=$E2SAR_ROOT \
+     -DPROTOBUF_HEADERS=e2sar
+   cmake --build build -j
+   ```
+
+**PROTOBUF_HEADERS** controls which generated headers to use:
+- `e2sar` *(recommended)*: reuse headers from your E2SAR build/install — always ABI-compatible
+- `bundled`: checked-in headers in `grpc/` — only works with protobuf 6.33.4–6.33.5
+- `regenerate`: run `protoc` at configure time (also pass `-DPROTO_FILE=/path/to/loadbalancer.proto`)
+
+See `CMakePresets.json` for available presets and `CMakeUserPresets.json.example` for adding a machine-specific preset with hardcoded paths.
 
 Binaries are written to `build/bin/`.
 
@@ -128,22 +156,22 @@ Key bridge options:
 
 ```bash
 # 5-test backpressure suite (B2B, no LB)
-./scripts/local_b2b_test.sh
+./scripts/MacOS/local_b2b_test.sh
 
 # Pipeline data-integrity test
-./scripts/local_pipeline_test.sh
+./scripts/MacOS/local_pipeline_test.sh
 
 # Options
-./scripts/local_b2b_test.sh --tests 1,3 --quick
-./scripts/local_pipeline_test.sh --count 2000 --size 8192
-./scripts/local_pipeline_test.sh BRIDGE_WORKERS=4 BRIDGE_MTU=9000 ./scripts/local_pipeline_test.sh
+./scripts/MacOS/local_b2b_test.sh --tests 1,3 --quick
+./scripts/MacOS/local_pipeline_test.sh --count 2000 --size 8192
+BRIDGE_WORKERS=4 BRIDGE_MTU=9000 ./scripts/MacOS/local_pipeline_test.sh
 ```
 
 Both scripts run entirely on localhost (127.0.0.1) and require only the built binaries and Python 3 with pyzmq.
 
 ## Testing on Perlmutter
 
-See [docs/TESTING.md](docs/TESTING.md) for the full test guide. Quick start:
+See [docs/test/TESTING.md](docs/test/TESTING.md) for the full test guide. Quick start:
 
 ```bash
 export EJFAT_URI="ejfats://token@ejfat-lb.es.net:18008/lb/..."
@@ -164,7 +192,7 @@ export E2SAR_SCRIPTS_DIR="$PWD/scripts/perlmutter"
 
 ## User Guide
 
-See [docs/USER_TESTING_GUIDE.md](docs/USER_TESTING_GUIDE.md) for a step-by-step guide to running senders, the proxy, bridge, and ZMQ consumers manually on Perlmutter.
+See [docs/user/USER_TESTING_GUIDE.md](docs/user/USER_TESTING_GUIDE.md) for a step-by-step guide to running senders, the proxy, bridge, and ZMQ consumers manually on Perlmutter.
 
 ## Key Configuration Parameters
 
