@@ -1,0 +1,25 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "my-machine",
+      "displayName": "My local machine",
+      "description": "Inherits from 'macos' (or 'linux') and hardcodes local paths for convenience.",
+      "inherits": "macos",
+      "cacheVariables": {
+        "E2SAR_ROOT": "/path/to/your/E2SAR"
+      },
+      "environment": {
+        "PKG_CONFIG_PATH": "/opt/homebrew/lib/pkgconfig:/opt/anaconda3/envs/e2sar-dev/lib/pkgconfig"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "my-machine",
+      "configurePreset": "my-machine",
+      "displayName": "Build (my machine)"
+    }
+  ]
+}

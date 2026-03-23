@@ -1,0 +1,59 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "container",
+      "displayName": "Container (ibaldin/e2sar:0.3.1)",
+      "description": "Build inside the ibaldin/e2sar:0.3.1 container image. No environment setup needed.",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "E2SAR_ROOT":        "/e2sar-install",
+        "PROTOBUF_HEADERS":  "e2sar",
+        "CMAKE_BUILD_TYPE":  "Release"
+      },
+      "environment": {
+        "PKG_CONFIG_PATH": "/usr/local/lib/pkgconfig:/e2sar-install/lib/x86_64-linux-gnu/pkgconfig"
+      }
+    },
+    {
+      "name": "linux",
+      "displayName": "Linux (E2SAR from environment)",
+      "description": "Native Linux build. Source scripts/setup_env.sh after setting E2SAR_ROOT.",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "E2SAR_ROOT":        "$env{E2SAR_ROOT}",
+        "PROTOBUF_HEADERS":  "e2sar",
+        "CMAKE_BUILD_TYPE":  "RelWithDebInfo"
+      }
+    },
+    {
+      "name": "macos",
+      "displayName": "macOS (E2SAR from environment)",
+      "description": "macOS native build (Homebrew + conda). Source scripts/setup_env.sh after setting E2SAR_ROOT.",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "E2SAR_ROOT":        "$env{E2SAR_ROOT}",
+        "PROTOBUF_HEADERS":  "e2sar",
+        "CMAKE_BUILD_TYPE":  "RelWithDebInfo"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "container",
+      "configurePreset": "container",
+      "displayName": "Build (container)"
+    },
+    {
+      "name": "linux",
+      "configurePreset": "linux",
+      "displayName": "Build (Linux)"
+    },
+    {
+      "name": "macos",
+      "configurePreset": "macos",
+      "displayName": "Build (macOS)"
+    }
+  ]
+}

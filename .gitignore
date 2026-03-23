@@ -40,6 +40,9 @@ config/*.yaml
 !config/default.yaml
 !config/*.yaml.template
 
+# CMake user-local presets (machine-specific, not checked in)
+CMakeUserPresets.json
+
 # SLURM test artifacts
 runs/
 INSTANCE_URI
