@@ -47,3 +47,6 @@ CMakeUserPresets.json
 runs/
 INSTANCE_URI
 slurm-*.out
+
+# Distributed test local config (contains host/path overrides, not committed)
+scripts/MacOS/distributed/distributed_env.local.sh
