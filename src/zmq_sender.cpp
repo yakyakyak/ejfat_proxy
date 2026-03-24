@@ -31,7 +31,7 @@ void ZmqSender::start(std::shared_ptr<EventRingBuffer> buffer) {
         socket_->set(zmq::sockopt::sndbuf, config_.sndbuf);
     }
 
-    // Bind to endpoint
+    // Bind to endpoint — the proxy is the server side; downstream consumers connect to it.
     socket_->bind(config_.push_endpoint);
 
     std::cout << "ZMQ sender bound to " << config_.push_endpoint
@@ -58,12 +58,21 @@ float ZmqSender::getBlockedSendRatio() const {
     return static_cast<float>(blocked_sends_.load()) / static_cast<float>(total);
 }
 
+// Two-phase send: try non-blocking first to measure backpressure, then block if needed.
+//
+// dontwait returns EAGAIN (nullopt) when the HWM queue is full — ZMQ's guarantee that
+// it touched nothing, so msg is intact and safe to retry. On success (has_value()),
+// ZMQ owns the buffer; sending again would transmit a zero-byte ghost message.
+//
+// The non-blocking attempt is what makes blocked_sends_ meaningful: it distinguishes
+// "sent immediately" from "had to wait for the consumer to drain the queue."
 void ZmqSender::run() {
     Event event;
 
     while (running_.load()) {
         if (!buffer_->pop(event)) {
-            // Buffer empty, brief sleep
+            // Buffer empty — sleep briefly to yield the CPU without busy-waiting.
+            // Shorter values reduce latency at the cost of higher idle CPU usage.
             std::this_thread::sleep_for(std::chrono::microseconds(config_.poll_sleep_us));
             continue;
         }

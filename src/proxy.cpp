@@ -63,8 +63,8 @@ EjfatZmqProxy::EjfatZmqProxy(const ProxyConfig& config)
 }
 
 EjfatZmqProxy::~EjfatZmqProxy() {
-    stop();
-    join();
+    stop();  // signal all threads to exit and deregister from LB
+    join();  // wait for all threads to finish before destroying members
 }
 
 void EjfatZmqProxy::start() {

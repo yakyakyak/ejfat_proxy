@@ -1,3 +1,13 @@
+// EventRingBuffer — bounded SPSC queue bridging the E2SAR receiver and ZMQ sender threads.
+//
+// push() is called by the receiver thread after each recvEvent(); pop() is called by the
+// ZMQ sender thread before each socket send. getFillLevel() is polled by BackpressureMonitor
+// to compute the PID control signal sent to the load balancer.
+//
+// approx_size_ shadows the queue depth as a relaxed atomic so getFillLevel() can be read
+// from the monitor thread without touching the lock-free queue internals.
+//------------------------------------------------------------------------------------------
+
 #include "ejfat_zmq_proxy/event_ring_buffer.hpp"
 
 namespace ejfat_zmq_proxy {
