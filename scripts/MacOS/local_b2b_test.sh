@@ -273,13 +273,6 @@ archive_test_logs() {
     echo "  Logs: $RUN_DIR/${prefix}_*.log"
 }
 
-run_assertions() {
-    local test_num="$1"; shift
-    # Each remaining arg is a complete assertion call e.g. "assert_no_crash $log"
-    # Actually: callers just call assertions directly after invoking this preamble
-    PASS_COUNT=0
-    FAIL_COUNT=0
-}
 
 record_test_result() {
     local test_name="$1"
