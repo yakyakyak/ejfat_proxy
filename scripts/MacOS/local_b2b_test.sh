@@ -43,7 +43,7 @@ else
     E2SAR_PERF_BIN=""
 fi
 RECEIVER="$PROJECT_ROOT/scripts/MacOS/test_receiver.py"
-TEMPLATE="$PROJECT_ROOT/config/perlmutter_b2b.yaml.template"
+TEMPLATE="$PROJECT_ROOT/config/distributed.yaml.template"
 BP_COMMON="$PROJECT_ROOT/scripts/perlmutter/bp_common.sh"
 
 #=============================================================================
@@ -60,7 +60,8 @@ SLURM_JOB_ID="local"
 RECV_THREADS="1"
 RCV_BUF_SIZE="3145728"
 VALIDATE_CERT="false"
-USE_IPV6="false"
+USE_CP="false"
+WITH_LB_HEADER="true"
 ZMQ_IO_THREADS="1"
 POLL_SLEEP="100"
 BP_PERIOD="50"
@@ -193,7 +194,7 @@ generate_local_config() {
 
     # Export all template variables before calling envsubst
     export EJFAT_URI DATA_IP DATA_PORT SLURM_JOB_ID ZMQ_PORT
-    export RECV_THREADS RCV_BUF_SIZE VALIDATE_CERT USE_IPV6
+    export RECV_THREADS RCV_BUF_SIZE VALIDATE_CERT USE_CP WITH_LB_HEADER
     export ZMQ_HWM ZMQ_IO_THREADS POLL_SLEEP ZMQ_SNDBUF
     export BP_PERIOD READY_THRESHOLD BP_LOG_INTERVAL LINGER_MS
     export PID_SETPOINT PID_KP PID_KI PID_KD

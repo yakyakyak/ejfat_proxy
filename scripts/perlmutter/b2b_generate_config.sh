@@ -18,14 +18,14 @@ set -euo pipefail
 OUTPUT_FILE="${1:-perlmutter_config.yaml}"
 
 # Find template (assume in config/ relative to submit directory)
-TEMPLATE="${SLURM_SUBMIT_DIR:-$(pwd)}/config/perlmutter_b2b.yaml.template"
+TEMPLATE="${SLURM_SUBMIT_DIR:-$(pwd)}/config/distributed.yaml.template"
 
 if [[ ! -f "$TEMPLATE" ]]; then
     echo "ERROR: Template not found: $TEMPLATE"
     exit 1
 fi
 
-echo "Generating back-to-back config from template: $TEMPLATE"
+echo "Generating back-to-back config from template: $TEMPLATE (use_cp=false, with_lb_header=true)"
 
 # Auto-detect DATA_IP from hostname (can be overridden by environment)
 if [[ -z "${DATA_IP:-}" ]]; then
@@ -49,7 +49,8 @@ export EJFAT_URI="ejfat://b2b-test@${DATA_IP}:9876/lb/1?data=${DATA_IP}:${DATA_P
 export RECV_THREADS="${RECV_THREADS:-4}"
 export RCV_BUF_SIZE="${RCV_BUF_SIZE:-10485760}"
 export VALIDATE_CERT="${VALIDATE_CERT:-false}"
-export USE_IPV6="${USE_IPV6:-false}"
+export USE_CP="false"
+export WITH_LB_HEADER="true"
 export ZMQ_PORT="${ZMQ_PORT:-5555}"
 export ZMQ_HWM="${ZMQ_HWM:-10000}"
 export ZMQ_IO_THREADS="${ZMQ_IO_THREADS:-2}"

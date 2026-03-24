@@ -6,7 +6,7 @@
 #
 # Requires:
 #   - INSTANCE_URI file (created by minimal_reserve.sh)
-#   - Template: config/perlmutter.yaml.template (relative to SLURM_SUBMIT_DIR)
+#   - Template: config/distributed.yaml.template (relative to SLURM_SUBMIT_DIR)
 #
 # Outputs:
 #   - Generated YAML config (default: perlmutter_config.yaml)
@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_FILE="${1:-perlmutter_config.yaml}"
 
 # Find template (assume in config/ relative to submit directory)
-TEMPLATE="${SLURM_SUBMIT_DIR:-$(pwd)}/config/perlmutter.yaml.template"
+TEMPLATE="${SLURM_SUBMIT_DIR:-$(pwd)}/config/distributed.yaml.template"
 
 if [[ ! -f "$TEMPLATE" ]]; then
     echo "ERROR: Template not found: $TEMPLATE"
@@ -83,7 +83,11 @@ export DATA_PORT="${DATA_PORT:-10000}"
 export RECV_THREADS="${RECV_THREADS:-4}"
 export RCV_BUF_SIZE="${RCV_BUF_SIZE:-10485760}"
 export VALIDATE_CERT="${VALIDATE_CERT:-true}"
-export USE_IPV6="${USE_IPV6:-false}"
+export USE_CP="${USE_CP:-true}"
+export WITH_LB_HEADER="${WITH_LB_HEADER:-false}"
+export LINGER_MS="${LINGER_MS:-0}"
+# READY_THRESHOLD maps BP_THRESHOLD so the template variable name is consistent
+export READY_THRESHOLD="${READY_THRESHOLD:-${BP_THRESHOLD:-0.95}}"
 export ZMQ_PORT="${ZMQ_PORT:-5555}"
 export ZMQ_HWM="${ZMQ_HWM:-200000}"
 export ZMQ_IO_THREADS="${ZMQ_IO_THREADS:-2}"

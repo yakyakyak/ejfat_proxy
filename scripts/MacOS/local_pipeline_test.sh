@@ -38,7 +38,7 @@ PROXY_BIN="${PROXY_BIN:-$PROJECT_ROOT/build/bin/ejfat_zmq_proxy}"
 BRIDGE_BIN="${BRIDGE_BIN:-$PROJECT_ROOT/build/bin/zmq_ejfat_bridge}"
 SENDER_BIN="${SENDER_BIN:-$PROJECT_ROOT/build/bin/pipeline_sender}"
 VALIDATOR_BIN="${VALIDATOR_BIN:-$PROJECT_ROOT/build/bin/pipeline_validator}"
-TEMPLATE="$PROJECT_ROOT/config/perlmutter_b2b.yaml.template"
+TEMPLATE="$PROJECT_ROOT/config/distributed.yaml.template"
 
 #=============================================================================
 # Fixed local settings
@@ -56,7 +56,8 @@ SLURM_JOB_ID="local"
 RECV_THREADS="${RECV_THREADS:-1}"
 RCV_BUF_SIZE="${RCV_BUF_SIZE:-3145728}"
 VALIDATE_CERT="false"
-USE_IPV6="false"
+USE_CP="false"
+WITH_LB_HEADER="true"
 ZMQ_HWM="10000"
 ZMQ_IO_THREADS="1"
 POLL_SLEEP="100"
@@ -174,7 +175,7 @@ generate_config() {
     local out="$RUN_DIR/proxy_config.yaml"
 
     export EJFAT_URI DATA_IP DATA_PORT SLURM_JOB_ID ZMQ_PORT
-    export RECV_THREADS RCV_BUF_SIZE VALIDATE_CERT USE_IPV6
+    export RECV_THREADS RCV_BUF_SIZE VALIDATE_CERT USE_CP WITH_LB_HEADER
     export ZMQ_HWM ZMQ_IO_THREADS POLL_SLEEP ZMQ_SNDBUF
     export BP_PERIOD READY_THRESHOLD BP_LOG_INTERVAL LINGER_MS
     export PID_SETPOINT PID_KP PID_KI PID_KD
