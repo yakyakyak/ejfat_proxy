@@ -293,7 +293,7 @@ send_events() {
         --ip "$DATA_IP" \
         --num "$num" \
         --length "$length" \
-        --rate -1 \
+        --rate "${SEND_RATE_GBPS:--1}" \
         --uri "$EJFAT_URI" \
         >> "$log" 2>&1 || true
 }
@@ -422,8 +422,13 @@ if should_run 2; then
     start_local_consumer 10 2 131072
     wait_proxy_ready
 
+    # Rate-limit to 1.5 Gbps (187 events/s). Consumer drains at 100/s (10ms delay);
+    # batch time = 0.53s → 53 events drained → net ~47 events peak fill (~47%).
+    # Keeps fill reliably above 30% threshold without saturating the buffer.
+    SEND_RATE_GBPS=1.5
     : > "$RUN_DIR/sender.log"
     soak_send 30 100 1048576
+    unset SEND_RATE_GBPS
 
     echo "Waiting 15s for drain..."
     sleep 15
@@ -459,11 +464,15 @@ if should_run 3; then
     start_local_consumer 100 2 131072
     wait_proxy_ready
 
+    # Rate-limit to 200 Mbps (25 events/s) so E2SAR reassembler doesn't drop
+    # fragments. Consumer at 100ms delay handles 10/s; net fill rate = 15/s.
+    SEND_RATE_GBPS=0.2
     : > "$RUN_DIR/sender.log"
-    send_events 200 1048576
+    soak_send 30 100 1048576
+    unset SEND_RATE_GBPS
 
-    echo "Waiting 20s for drain..."
-    sleep 20
+    echo "Waiting 30s for drain..."
+    sleep 30
 
     stop_local_proxy
     stop_local_consumer
@@ -531,8 +540,12 @@ if should_run 5; then
     start_local_consumer 20 5 131072
     wait_proxy_ready
 
+    # Rate-limit to 1 Gbps (125 events/s). Consumer drains at 50/s (20ms delay);
+    # net fill rate = 75/s → saturates 200-event buffer quickly, passes 10% threshold.
+    SEND_RATE_GBPS=1.0
     : > "$RUN_DIR/sender.log"
     soak_send "$SOAK_DURATION" 100 1048576
+    unset SEND_RATE_GBPS
 
     echo "Waiting 10s for drain..."
     sleep 10
