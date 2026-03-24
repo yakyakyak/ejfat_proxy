@@ -36,9 +36,6 @@ ejfat:
   # TLS certificate validation (not used without CP)
   validate_cert: ${VALIDATE_CERT}
 
-  # IPv6 dataplane
-  use_ipv6: ${USE_IPV6}
-
   # Scheduling hints sent to LB (not used in B2B mode)
   scheduling:
     weight: 1.0

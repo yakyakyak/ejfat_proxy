@@ -7,11 +7,9 @@ namespace ejfat_zmq_proxy {
 BackpressureMonitor::BackpressureMonitor(
     const BackpressureConfig& config,
     std::shared_ptr<EventRingBuffer> buffer,
-    std::shared_ptr<ZmqSender> sender,
     std::shared_ptr<e2sar::LBManager> lb_manager)
     : config_(config),
       buffer_(buffer),
-      sender_(sender),
       lb_manager_(lb_manager) {
 }
 

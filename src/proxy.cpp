@@ -31,7 +31,6 @@ EjfatZmqProxy::EjfatZmqProxy(const ProxyConfig& config)
     rflags.useCP = config_.ejfat.use_cp;
     rflags.withLBHeader = config_.ejfat.with_lb_header;
     rflags.validateCert = config_.ejfat.validate_cert;
-    // Note: useIPv6 not available in E2SAR API (determined by data_ip type)
     rflags.eventTimeout_ms = config_.ejfat.event_timeout_ms;
     rflags.rcvSocketBufSize = config_.ejfat.rcv_socket_buf_size;
     rflags.weight = config_.ejfat.scheduling.weight;
@@ -75,7 +74,6 @@ EjfatZmqProxy::EjfatZmqProxy(const ProxyConfig& config)
     monitor_ = std::make_unique<BackpressureMonitor>(
         config_.backpressure,
         buffer_,
-        sender_,
         lb_manager_
     );
     std::cout << "  Backpressure monitor created" << std::endl;

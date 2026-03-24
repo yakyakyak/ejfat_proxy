@@ -24,7 +24,6 @@ ProxyConfig ProxyConfig::loadFromYaml(const std::string& filepath) {
             if (ejfat["event_timeout_ms"]) config.ejfat.event_timeout_ms = ejfat["event_timeout_ms"].as<uint32_t>();
             if (ejfat["rcv_socket_buf_size"]) config.ejfat.rcv_socket_buf_size = ejfat["rcv_socket_buf_size"].as<uint32_t>();
             if (ejfat["validate_cert"]) config.ejfat.validate_cert = ejfat["validate_cert"].as<bool>();
-            if (ejfat["use_ipv6"]) config.ejfat.use_ipv6 = ejfat["use_ipv6"].as<bool>();
 
             if (ejfat["scheduling"]) {
                 const auto& sched = ejfat["scheduling"];
@@ -74,7 +73,6 @@ ProxyConfig ProxyConfig::loadFromYaml(const std::string& filepath) {
         // Load logging config
         if (root["logging"]) {
             const auto& log = root["logging"];
-            if (log["verbosity"]) config.logging.verbosity = log["verbosity"].as<int>();
             if (log["drop_warn_interval"]) config.logging.drop_warn_interval = log["drop_warn_interval"].as<uint32_t>();
             if (log["progress_interval"]) config.logging.progress_interval = log["progress_interval"].as<uint32_t>();
         }

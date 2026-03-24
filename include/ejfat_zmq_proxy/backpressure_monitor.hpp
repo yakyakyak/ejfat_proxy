@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ejfat_zmq_proxy/event_ring_buffer.hpp"
-#include "ejfat_zmq_proxy/zmq_sender.hpp"
 #include "ejfat_zmq_proxy/config.hpp"
 #include <e2sarCP.hpp>
 #include <memory>
@@ -14,7 +13,6 @@ class BackpressureMonitor {
 public:
     BackpressureMonitor(const BackpressureConfig& config,
                         std::shared_ptr<EventRingBuffer> buffer,
-                        std::shared_ptr<ZmqSender> sender,
                         std::shared_ptr<e2sar::LBManager> lb_manager);
     ~BackpressureMonitor();
 
@@ -32,7 +30,6 @@ private:
 
     BackpressureConfig config_;
     std::shared_ptr<EventRingBuffer> buffer_;
-    std::shared_ptr<ZmqSender> sender_;
     std::shared_ptr<e2sar::LBManager> lb_manager_;
 
     std::atomic<bool> running_{false};

@@ -2,7 +2,6 @@
 
 #include <string>
 #include <cstdint>
-#include <stdexcept>
 
 namespace ejfat_zmq_proxy {
 
@@ -23,7 +22,6 @@ struct EjfatConfig {
     uint32_t event_timeout_ms{500};
     uint32_t rcv_socket_buf_size{3145728};  // 3MB default
     bool validate_cert{true};
-    bool use_ipv6{false};
     SchedulingConfig scheduling;
 };
 
@@ -59,7 +57,6 @@ struct BufferConfig {
 };
 
 struct LoggingConfig {
-    int verbosity{1};  // 0=quiet, 1=normal, 2=verbose
     uint32_t drop_warn_interval{1000};
     uint32_t progress_interval{10000};
 };
