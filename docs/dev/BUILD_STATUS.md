@@ -79,9 +79,55 @@ Key settings:
 | `backpressure.pid.setpoint` | 0.5 | Target buffer fill level |
 | `backpressure.pid.kp/ki/kd` | 1.0/0.0/0.0 | PID gains |
 
+## Code Improvements (March 24, 2026)
+
+Internal refactoring across `proxy.cpp`, `zmq_sender.cpp`, `backpressure_monitor.cpp`, and the headers. No API or config changes.
+
+### Shutdown race fix (`proxy.cpp`)
+
+`stop()` previously called `deregisterWorker()` on `lb_manager_` before stopping the
+backpressure monitor thread, creating a race where the monitor could be calling
+`sendState()` on the same object concurrently. Fixed by stopping and joining the
+monitor thread first, then deregistering.
+
+### `Event::release()` (`event_ring_buffer.hpp`, `zmq_sender.cpp`)
+
+Added `Event::release()` — returns `{uint8_t*, size_t}` and nulls the internal pointer.
+Replaces the manual 4-line ownership-transfer pattern in `ZmqSender::run()` with a
+single named operation, making the ZMQ zero-copy handoff self-documenting.
+
+### `RecvTiming` struct (`proxy.cpp`)
+
+Extracted 6 timing locals and the end-of-thread stats dump from `receiverThread()` into
+an inline `struct RecvTiming { recordSuccess(); print(); }`. The core receive loop now
+reads without diagnostic scaffolding interspersed.
+
+### Atomic efficiency (`proxy.cpp`)
+
+`events_received_.fetch_add(1)` and `events_dropped_.fetch_add(1)` now capture the
+return value (previous count) instead of doing a separate `.load()`, removing the
+TOCTOU gap and one redundant atomic operation per event.
+
+### `send_state_count_` consistency (`backpressure_monitor.cpp`)
+
+Both CP and non-CP branches now increment the counter before the modulo check, so both
+log at the same intervals (`log_interval`, `2×log_interval`, …) rather than the non-CP
+branch unconditionally logging on iteration 0.
+
+### Thread safety documentation (`proxy.hpp`, `event_ring_buffer.hpp`)
+
+Added `// THREAD SAFETY:` blocks to both headers documenting the SPSC contract, which
+members are written by which thread, and why the shutdown ordering in `stop()` matters.
+
+### Constructor logging consolidation (`proxy.cpp`)
+
+Replaced 18 interleaved `std::cout` calls scattered across construction steps with a
+single structured summary printed after all components are initialized.
+
 ## Known Warnings
 
 - Nullability extension warnings from Abseil headers (harmless)
 - Deprecation warnings for MutexLock in gRPC (harmless)
+- `nodiscard` warning on `lb_manager_->sendState()` in backpressure_monitor.cpp (E2SAR API, harmless)
 
 All warnings are from external libraries and do not affect functionality.

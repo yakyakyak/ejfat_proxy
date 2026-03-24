@@ -68,13 +68,10 @@ void ZmqSender::run() {
             continue;
         }
 
-        // Zero-copy ZMQ message: wrap the E2SAR buffer directly.
-        // The free function calls delete[] when ZMQ is done with the data,
-        // so we must release ownership from event first.
-        uint8_t* buf   = event.data;
-        size_t   bytes = event.bytes;
-        event.data  = nullptr;  // ownership transferred to ZMQ message
-        event.bytes = 0;
+        // Zero-copy ZMQ message: transfer the E2SAR buffer directly into ZMQ.
+        // event.release() hands off ownership and nulls the internal pointer
+        // so the Event destructor will not double-free.
+        auto [buf, bytes] = event.release();
 
         zmq::message_t msg(buf, bytes,
             [](void* ptr, void*) { delete[] static_cast<uint8_t*>(ptr); },

@@ -79,9 +79,11 @@ void BackpressureMonitor::run() {
         if (has_cp) {
             bool is_ready = (fill_level < config_.ready_threshold);
 
+            // Increment before sendState so the counter tracks monitor iterations,
+            // not just successful gRPC calls — matches non-CP branch semantics.
+            send_state_count_++;
             try {
                 lb_manager_->sendState(fill_level * 100.0f, control_signal, is_ready);
-                send_state_count_++;
 
                 if (config_.log_interval > 0 && send_state_count_ % config_.log_interval == 0) {
                     std::cout << "sendState #" << send_state_count_
@@ -93,8 +95,11 @@ void BackpressureMonitor::run() {
                 std::cerr << "Error sending state to LB: " << e.what() << std::endl;
             }
         } else {
-            // Just monitor locally without sending to CP
-            if (config_.log_interval > 0 && send_state_count_++ % config_.log_interval == 0) {
+            // Just monitor locally without sending to CP.
+            // Increment before the modulo check so logging intervals match the CP branch
+            // (both log at multiples of log_interval, not starting from iteration 0).
+            send_state_count_++;
+            if (config_.log_interval > 0 && send_state_count_ % config_.log_interval == 0) {
                 std::cout << "Monitor #" << send_state_count_
                           << ": fill=" << (fill_level * 100.0f) << "%" << std::endl;
             }

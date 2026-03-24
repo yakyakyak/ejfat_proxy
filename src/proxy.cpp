@@ -9,72 +9,57 @@ namespace ejfat_zmq_proxy {
 EjfatZmqProxy::EjfatZmqProxy(const ProxyConfig& config)
     : config_(config) {
 
-    std::cout << "Initializing EJFAT ZMQ Proxy..." << std::endl;
-
-    // Create ring buffer
-    buffer_ = std::make_shared<EventRingBuffer>(config_.buffer.size);
-    std::cout << "  Ring buffer: " << config_.buffer.size << " events" << std::endl;
-
     // Parse EJFAT URI (use instance token type for local testing)
     e2sar::EjfatURI uri(config_.ejfat.uri, e2sar::EjfatURI::TokenType::instance);
 
-    // Create LB manager for sendState (only if using control plane)
+    // Create LB manager (only if using the control plane)
     if (config_.ejfat.use_cp) {
         lb_manager_ = std::make_shared<e2sar::LBManager>(uri, true, false);
-        std::cout << "  LB manager created (CP enabled)" << std::endl;
-    } else {
-        std::cout << "  LB manager skipped (CP disabled)" << std::endl;
     }
 
-    // Configure E2SAR reassembler flags
+    // Configure and initialize the E2SAR reassembler.
+    // Use the configured IP address; empty string falls back to 127.0.0.1
+    // because macOS does not support auto-detection.
     e2sar::Reassembler::ReassemblerFlags rflags;
-    rflags.useCP = config_.ejfat.use_cp;
-    rflags.withLBHeader = config_.ejfat.with_lb_header;
-    rflags.validateCert = config_.ejfat.validate_cert;
-    rflags.eventTimeout_ms = config_.ejfat.event_timeout_ms;
-    rflags.rcvSocketBufSize = config_.ejfat.rcv_socket_buf_size;
-    rflags.weight = config_.ejfat.scheduling.weight;
+    rflags.useCP          = config_.ejfat.use_cp;
+    rflags.withLBHeader   = config_.ejfat.with_lb_header;
+    rflags.validateCert   = config_.ejfat.validate_cert;
+    rflags.eventTimeout_ms   = config_.ejfat.event_timeout_ms;
+    rflags.rcvSocketBufSize  = config_.ejfat.rcv_socket_buf_size;
+    rflags.weight     = config_.ejfat.scheduling.weight;
     rflags.min_factor = config_.ejfat.scheduling.min_factor;
     rflags.max_factor = config_.ejfat.scheduling.max_factor;
 
-    // Initialize E2SAR reassembler with flags
-    // Use configured IP address (empty = auto-detect, or explicit IP for macOS)
     try {
         std::string ip_to_use = config_.ejfat.data_ip.empty() ? "127.0.0.1" : config_.ejfat.data_ip;
-        auto local_ip = boost::asio::ip::make_address(ip_to_use);
         reassembler_ = std::make_unique<e2sar::Reassembler>(
             uri,
-            local_ip,
+            boost::asio::ip::make_address(ip_to_use),
             config_.ejfat.data_port,
             config_.ejfat.num_recv_threads,
             rflags
         );
-        std::cout << "  E2SAR reassembler initialized" << std::endl;
-        std::cout << "    URI: " << config_.ejfat.uri << std::endl;
-        std::cout << "    Port: " << config_.ejfat.data_port << std::endl;
-        std::cout << "    Data IP: " << (config_.ejfat.data_ip.empty() ? "auto-detect" : config_.ejfat.data_ip) << std::endl;
-        std::cout << "    Recv threads: " << config_.ejfat.num_recv_threads << std::endl;
-        std::cout << "    Use CP: " << (config_.ejfat.use_cp ? "true" : "false") << std::endl;
-        std::cout << "    With LB header: " << (config_.ejfat.with_lb_header ? "true" : "false") << std::endl;
     } catch (const std::exception& e) {
-        std::cerr << "ERROR: Failed to initialize E2SAR Reassembler" << std::endl;
-        std::cerr << "  Exception: " << e.what() << std::endl;
+        std::cerr << "ERROR: Failed to initialize E2SAR Reassembler: " << e.what() << std::endl;
         throw;
     }
 
-    // Create ZMQ sender
-    sender_ = std::make_shared<ZmqSender>(config_.zmq);
-    std::cout << "  ZMQ sender created" << std::endl;
+    buffer_  = std::make_shared<EventRingBuffer>(config_.buffer.size);
+    sender_  = std::make_shared<ZmqSender>(config_.zmq);
+    monitor_ = std::make_unique<BackpressureMonitor>(config_.backpressure, buffer_, lb_manager_);
 
-    // Create backpressure monitor
-    monitor_ = std::make_unique<BackpressureMonitor>(
-        config_.backpressure,
-        buffer_,
-        lb_manager_
-    );
-    std::cout << "  Backpressure monitor created" << std::endl;
-
-    std::cout << "Initialization complete" << std::endl;
+    // Print a single structured summary rather than interleaving logs with construction.
+    std::string data_ip = config_.ejfat.data_ip.empty() ? "auto-detect" : config_.ejfat.data_ip;
+    std::cout << "EJFAT ZMQ Proxy initialized\n"
+              << "  EJFAT:  " << data_ip << ":" << config_.ejfat.data_port
+              << "  threads=" << config_.ejfat.num_recv_threads
+              << "  CP=" << (config_.ejfat.use_cp ? "on" : "off")
+              << "  LB-header=" << (config_.ejfat.with_lb_header ? "yes" : "no") << "\n"
+              << "  ZMQ:    " << config_.zmq.push_endpoint
+              << "  HWM=" << config_.zmq.send_hwm << "\n"
+              << "  Buffer: " << config_.buffer.size << " events"
+              << "  BP period=" << config_.backpressure.period_ms << "ms"
+              << std::endl;
 }
 
 EjfatZmqProxy::~EjfatZmqProxy() {
@@ -147,7 +132,15 @@ void EjfatZmqProxy::stop() {
 
     std::cout << "\nStopping proxy components..." << std::endl;
 
-    // Deregister from LB before stopping
+    // Stop the backpressure monitor first and wait for it to fully exit before
+    // calling deregisterWorker(). Without the join, the monitor thread may still
+    // be executing sendState() on lb_manager_ concurrently with deregisterWorker()
+    // on the main thread — a race whose safety depends on LBManager's thread safety.
+    monitor_->stop();
+    monitor_->join();
+    std::cout << "  Backpressure monitor stopped" << std::endl;
+
+    // Deregister from LB (safe: monitor thread has exited, no concurrent sendState calls)
     if (lb_manager_) {
         auto dereg = lb_manager_->deregisterWorker();
         if (dereg.has_error()) {
@@ -158,8 +151,6 @@ void EjfatZmqProxy::stop() {
         }
     }
 
-    // Stop all components
-    monitor_->stop();
     sender_->stop();
 }
 
@@ -188,20 +179,50 @@ void EjfatZmqProxy::receiverThread() {
     e2sar::EventNum_t event_num = 0;
     uint16_t data_id = 0;
 
-    // Timing diagnostics
     using Clock = std::chrono::steady_clock;
-    uint64_t recv_call_count = 0;
-    uint64_t recv_timeout_count = 0;
-    int64_t recv_success_us_total = 0;
-    int64_t recv_success_us_max = 0;
-    Clock::time_point first_event_time;
-    Clock::time_point last_event_time;
+
+    // Accumulates timing diagnostics for recvEvent(); printed at thread exit.
+    // Kept separate from the core receive logic to make the loop easier to read.
+    struct RecvTiming {
+        uint64_t calls{0};
+        uint64_t timeouts{0};
+        int64_t  success_us_total{0};
+        int64_t  success_us_max{0};
+        bool     first_event_set{false};
+        Clock::time_point first_event{};
+        Clock::time_point last_event{};
+
+        void recordSuccess(int64_t elapsed_us) {
+            success_us_total += elapsed_us;
+            if (elapsed_us > success_us_max) success_us_max = elapsed_us;
+            auto now = Clock::now();
+            if (!first_event_set) { first_event = now; first_event_set = true; }
+            last_event = now;
+        }
+
+        void print(uint64_t success_count) const {
+            std::cout << "=== recvEvent() timing diagnostics ===" << std::endl;
+            std::cout << "  Total calls   : " << calls << std::endl;
+            std::cout << "  Success calls : " << success_count << std::endl;
+            std::cout << "  Timeout calls : " << timeouts << std::endl;
+            if (success_count > 0) {
+                std::cout << "  Avg wait (us) : " << (success_us_total / (int64_t)success_count) << std::endl;
+                std::cout << "  Max wait (us) : " << success_us_max << std::endl;
+                auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    last_event - first_event).count();
+                std::cout << "  Event span ms : " << duration_ms << std::endl;
+                if (duration_ms > 0)
+                    std::cout << "  Event rate    : " << (success_count * 1000 / duration_ms) << " evt/s" << std::endl;
+            }
+            std::cout << "=======================================" << std::endl;
+        }
+    } timing;
 
     while (running_.load()) {
         auto t0 = Clock::now();
         // Blocking recvEvent with 1s timeout, same as e2sar_perf.
         // Return semantics: value()==0 success, value()==-1 timeout/empty, has_error() error.
-        recv_call_count++;
+        timing.calls++;
         auto result = reassembler_->recvEvent(
             &event_data,
             &event_bytes,
@@ -219,13 +240,9 @@ void EjfatZmqProxy::receiverThread() {
 
         if (result.value() != 0) {
             // Timeout / queue empty
-            recv_timeout_count++;
+            timing.timeouts++;
             continue;
         }
-
-        // Successful recv — record timing
-        recv_success_us_total += elapsed_us;
-        if (elapsed_us > recv_success_us_max) recv_success_us_max = elapsed_us;
 
         // Successfully received event.
         // E2SAR allocates event_data with new[]; we take ownership here.
@@ -237,46 +254,36 @@ void EjfatZmqProxy::receiverThread() {
             continue;
         }
 
-        events_received_.fetch_add(1);
-        if (events_received_.load() == 1) first_event_time = Clock::now();
-        last_event_time = Clock::now();
+        timing.recordSuccess(elapsed_us);
+
+        // fetch_add returns the previous value, which is one less than the new count.
+        // This avoids a separate .load() and removes any TOCTOU gap between add and read.
+        uint64_t received_before = events_received_.fetch_add(1);
 
         Event event(event_data, event_bytes, event_num, data_id);
         event_data = nullptr;
         event_bytes = 0;
 
         if (!buffer_->push(std::move(event))) {
-            events_dropped_.fetch_add(1);
+            uint64_t dropped_before = events_dropped_.fetch_add(1);
+            uint64_t dropped_now = dropped_before + 1;
             if (config_.logging.drop_warn_interval > 0 &&
-                events_dropped_.load() % config_.logging.drop_warn_interval == 0) {
-                std::cerr << "WARNING: Dropped " << events_dropped_.load()
+                dropped_now % config_.logging.drop_warn_interval == 0) {
+                std::cerr << "WARNING: Dropped " << dropped_now
                           << " events (buffer full)" << std::endl;
             }
         }
 
         // Log progress periodically
+        uint64_t received_now = received_before + 1;
         if (config_.logging.progress_interval > 0 &&
-            events_received_.load() % config_.logging.progress_interval == 0) {
-            std::cout << "Received " << events_received_.load() << " events" << std::endl;
+            received_now % config_.logging.progress_interval == 0) {
+            std::cout << "Received " << received_now << " events" << std::endl;
         }
     }
 
-    uint64_t recv_success_count = events_received_.load();
     std::cout << "Receiver thread exiting" << std::endl;
-    std::cout << "=== recvEvent() timing diagnostics ===" << std::endl;
-    std::cout << "  Total calls   : " << recv_call_count << std::endl;
-    std::cout << "  Success calls : " << recv_success_count << std::endl;
-    std::cout << "  Timeout calls : " << recv_timeout_count << std::endl;
-    if (recv_success_count > 0) {
-        std::cout << "  Avg wait (us) : " << (recv_success_us_total / (int64_t)recv_success_count) << std::endl;
-        std::cout << "  Max wait (us) : " << recv_success_us_max << std::endl;
-        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            last_event_time - first_event_time).count();
-        std::cout << "  Event span ms : " << duration_ms << std::endl;
-        if (duration_ms > 0)
-            std::cout << "  Event rate    : " << (recv_success_count * 1000 / duration_ms) << " evt/s" << std::endl;
-    }
-    std::cout << "=======================================" << std::endl;
+    timing.print(events_received_.load());
 }
 
 void EjfatZmqProxy::printStats() const {
