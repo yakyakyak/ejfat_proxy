@@ -110,7 +110,7 @@ wait_for_proxy_ready 2
 # Soak 30s: fill rate ~25 events/s → ring buffer fills to 100% in ~4s
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
     bash -c "cd '$JOB_DIR' && TARGET_IP='$TARGET_IP' DATA_PORT='$DATA_PORT' \
-    '$SCRIPT_DIR/run_b2b_soak_sender.sh' --duration 30 --rate 10" || true
+    '$SCRIPT_DIR/run_soak_sender.sh' --sender-script b2b_sender.sh --duration 30 --rate 10" || true
 
 echo "Waiting 20s for drain..."
 sleep 20
@@ -207,7 +207,7 @@ wait_for_proxy_ready 5
 
 srun --nodes=1 --ntasks=1 --nodelist="$NODE_SENDER" \
     bash -c "cd '$JOB_DIR' && TARGET_IP='$TARGET_IP' DATA_PORT='$DATA_PORT' \
-    '$SCRIPT_DIR/run_b2b_soak_sender.sh' --duration 300 --rate 10" || true
+    '$SCRIPT_DIR/run_soak_sender.sh' --sender-script b2b_sender.sh --duration 300 --rate 10" || true
 
 echo "Waiting 15s for drain..."
 sleep 15
