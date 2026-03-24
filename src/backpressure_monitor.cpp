@@ -1,4 +1,5 @@
 #include "ejfat_zmq_proxy/backpressure_monitor.hpp"
+#include <algorithm>
 #include <iostream>
 #include <chrono>
 
@@ -42,7 +43,7 @@ float BackpressureMonitor::computePID(float error) {
 
     // Integral (with anti-windup clamping)
     integral_ += error;
-    integral_ = std::max(-config_.pid.integral_limit, std::min(config_.pid.integral_limit, integral_));
+    integral_ = std::clamp(integral_, -config_.pid.integral_limit, config_.pid.integral_limit);
     float i_term = config_.pid.ki * integral_;
 
     // Derivative
@@ -68,7 +69,7 @@ void BackpressureMonitor::run() {
         float control_signal = computePID(error);
 
         // Clamp control signal to configured range
-        control_signal = std::max(config_.control_min, std::min(config_.control_max, control_signal));
+        control_signal = std::clamp(control_signal, config_.control_min, config_.control_max);
 
         // Store for reporting
         last_fill_percent_.store(fill_level * 100.0f);

@@ -56,10 +56,6 @@ EjfatZmqProxy::EjfatZmqProxy(const ProxyConfig& config)
         std::cout << "    Recv threads: " << config_.ejfat.num_recv_threads << std::endl;
         std::cout << "    Use CP: " << (config_.ejfat.use_cp ? "true" : "false") << std::endl;
         std::cout << "    With LB header: " << (config_.ejfat.with_lb_header ? "true" : "false") << std::endl;
-    } catch (const e2sar::E2SARException& e) {
-        std::cerr << "ERROR: Failed to initialize E2SAR Reassembler" << std::endl;
-        std::cerr << "  Exception: " << e.what() << std::endl;
-        throw;
     } catch (const std::exception& e) {
         std::cerr << "ERROR: Failed to initialize E2SAR Reassembler" << std::endl;
         std::cerr << "  Exception: " << e.what() << std::endl;
@@ -211,7 +207,7 @@ void EjfatZmqProxy::receiverThread() {
             &event_bytes,
             &event_num,
             &data_id,
-            1000
+            config_.buffer.recv_timeout_ms
         );
         auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
             Clock::now() - t0).count();
