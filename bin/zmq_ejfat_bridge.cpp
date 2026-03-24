@@ -9,11 +9,11 @@
  *       --> ejfat_zmq_proxy  (EJFAT recv -> ZMQ PUSH)
  *       --> pipeline_validator (ZMQ PULL)
  *
- * Multi-worker mode (--workers N):
- *   N ZMQ PULL worker threads each receive events and enqueue them into a
- *   single shared E2SAR Segmenter via addToSendQueue() (thread-safe,
- *   non-blocking). The Segmenter's internal thread pool (numSendSockets
- *   workers) handles parallel UDP fragmentation and sending.
+ * Multi-endpoint mode (--zmq-endpoint repeated):
+ *   Each --zmq-endpoint spawns --workers ZMQ PULL threads, all sharing a
+ *   single E2SAR Segmenter via addToSendQueue() (thread-safe, non-blocking).
+ *   The Segmenter's internal thread pool (numSendSockets) handles parallel
+ *   UDP fragmentation and sending.
  *
  *   The proxy sees exactly ONE sender (single data_id/src_id) — no
  *   reassembly confusion from multiple concurrent Segmenters.
@@ -25,14 +25,12 @@
  *   registers freeEventBuffer() as the completion callback so E2SAR's
  *   thread pool worker frees it after _send() completes.
  *
- * Topology:
- *   pipeline_sender (ZMQ PUSH :5556)
- *     ├── worker-0 (ZMQ PULL) ──┐
- *     ├── worker-1 (ZMQ PULL) ──┤  addToSendQueue (lockfree, thread-safe)
- *     ├── worker-2 (ZMQ PULL) ──┤──→ Segmenter internal queue
- *     └── worker-3 (ZMQ PULL) ──┘      → dispatch thread
- *                                          → thread_pool(numSendSockets)
- *                                             → UDP → proxy :19522
+ * Topology (2 endpoints, 1 worker each):
+ *   sender-A (ZMQ PUSH :5556) ── worker-0 (ZMQ PULL) ──┐
+ *                                                         ├── addToSendQueue
+ *   sender-B (ZMQ PUSH :5557) ── worker-1 (ZMQ PULL) ──┘   → Segmenter queue
+ *                                                               → thread_pool
+ *                                                                  → UDP → proxy
  */
 
 #include "e2sar.hpp"
@@ -147,8 +145,11 @@ int main(int argc, char* argv[]) {
         ("help,h",   "Show this help")
         ("uri,u",    po::value<std::string>()->required(),
                      "EJFAT instance URI")
-        ("zmq-endpoint,e", po::value<std::string>()->default_value("tcp://localhost:5556"),
-                     "ZMQ PULL endpoint to connect to")
+        ("zmq-endpoint,e",
+                     po::value<std::vector<std::string>>()->composing()
+                         ->default_value(std::vector<std::string>{"tcp://localhost:5556"},
+                                         "tcp://localhost:5556"),
+                     "ZMQ PULL endpoint to connect to (repeat for multiple queues)")
         ("data-id,d", po::value<uint16_t>()->default_value(1),
                      "E2SAR data ID carried in RE header")
         ("src-id,s", po::value<uint32_t>()->default_value(1),
@@ -188,7 +189,8 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, signalHandler);
 
     const bool no_cp = vm["no-cp"].as<bool>();
-    const int  N     = vm["workers"].as<int>();
+    const int  workers_per_ep = vm["workers"].as<int>();
+    const auto& endpoints = vm["zmq-endpoint"].as<std::vector<std::string>>();
 
     e2sar::EjfatURI uri(vm["uri"].as<std::string>(),
                         e2sar::EjfatURI::TokenType::instance);
@@ -237,31 +239,38 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    const int total_workers = static_cast<int>(endpoints.size()) * workers_per_ep;
+
     std::cout << "ZMQ EJFAT Bridge started" << std::endl;
-    std::cout << "  ZMQ endpoint : " << vm["zmq-endpoint"].as<std::string>() << std::endl;
+    for (size_t i = 0; i < endpoints.size(); i++)
+        std::cout << "  ZMQ endpoint[" << i << "]: " << endpoints[i] << std::endl;
     std::cout << "  Data ID      : " << vm["data-id"].as<uint16_t>()         << std::endl;
     std::cout << "  Src ID       : " << vm["src-id"].as<uint32_t>()          << std::endl;
     std::cout << "  MTU          : " << vm["mtu"].as<uint16_t>()             << std::endl;
     std::cout << "  Sockets      : " << vm["sockets"].as<int>()
               << " (E2SAR UDP send thread pool)"                             << std::endl;
-    std::cout << "  Workers      : " << N
-              << " (ZMQ recv threads)"                                       << std::endl;
+    std::cout << "  Workers      : " << total_workers
+              << " (" << endpoints.size() << " endpoints x "
+              << workers_per_ep << " workers each)"                          << std::endl;
     std::cout << std::endl;
 
     WorkerStats stats;
     std::vector<std::thread> workers;
-    workers.reserve(N);
+    workers.reserve(total_workers);
 
-    for (int i = 0; i < N; i++) {
-        workers.emplace_back(
-            workerLoop,
-            i,
-            vm["zmq-endpoint"].as<std::string>(),
-            vm["rcvhwm"].as<int>(),
-            std::ref(segmenter),
-            vm["stats-interval"].as<int>(),
-            std::ref(stats)
-        );
+    int worker_id = 0;
+    for (const auto& ep : endpoints) {
+        for (int w = 0; w < workers_per_ep; w++) {
+            workers.emplace_back(
+                workerLoop,
+                worker_id++,
+                ep,
+                vm["rcvhwm"].as<int>(),
+                std::ref(segmenter),
+                vm["stats-interval"].as<int>(),
+                std::ref(stats)
+            );
+        }
     }
 
     for (auto& t : workers) t.join();
@@ -272,7 +281,8 @@ int main(int argc, char* argv[]) {
     auto sendStats = segmenter.getSendStats();
 
     std::cout << "\n=== Bridge Statistics ===" << std::endl;
-    std::cout << "Workers                   : " << N                        << std::endl;
+    std::cout << "Endpoints                 : " << endpoints.size()          << std::endl;
+    std::cout << "Workers                   : " << total_workers             << std::endl;
     std::cout << "Events received from ZMQ  : " << stats.received.load()   << std::endl;
     std::cout << "Events enqueued to E2SAR  : " << stats.sent.load()       << std::endl;
     std::cout << "Events dropped (q full)   : " << stats.dropped.load()    << std::endl;

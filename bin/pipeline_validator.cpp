@@ -75,6 +75,8 @@ int main(int argc, char* argv[]) {
                              "Seconds of silence before giving up")
         ("no-payload-check", po::bool_switch()->default_value(false),
                              "Skip per-byte payload validation")
+        ("start-seq",        po::value<uint64_t>()->default_value(UINT64_MAX),
+                             "First expected sequence number (default: auto-detect from first message)")
         ("rcvhwm",           po::value<int>()->default_value(10000),
                              "ZMQ receive HWM");
 
@@ -92,10 +94,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const uint64_t expected        = vm["expected"].as<uint64_t>();
-    const int      timeout_s       = vm["timeout"].as<int>();
+    const uint64_t expected         = vm["expected"].as<uint64_t>();
+    const int      timeout_s        = vm["timeout"].as<int>();
     const bool     no_payload_check = vm["no-payload-check"].as<bool>();
-    const bool     unlimited       = (expected == 0);
+    const uint64_t start_seq_arg    = vm["start-seq"].as<uint64_t>();
+    const bool     unlimited        = (expected == 0);
 
     std::signal(SIGINT,  signalHandler);
     std::signal(SIGTERM, signalHandler);
@@ -109,6 +112,8 @@ int main(int argc, char* argv[]) {
     std::cout << "  Expecting    : " << (unlimited ? "unlimited" : std::to_string(expected)) << " messages" << std::endl;
     std::cout << "  Timeout      : " << timeout_s << "s of silence" << std::endl;
     std::cout << "  Payload check: " << (no_payload_check ? "disabled" : "enabled") << std::endl;
+    if (start_seq_arg != UINT64_MAX)
+        std::cout << "  Start seq    : " << start_seq_arg << std::endl;
     std::cout << "Waiting for messages...\n" << std::endl;
 
     uint64_t received       = 0;
@@ -196,7 +201,8 @@ int main(int argc, char* argv[]) {
     // Compute truly missing sequences
     uint64_t missing = 0;
     if (!unlimited && !first_msg) {
-        for (uint64_t s = first_seq; s < first_seq + expected; s++) {
+        uint64_t range_start = (start_seq_arg != UINT64_MAX) ? start_seq_arg : first_seq;
+        for (uint64_t s = range_start; s < range_start + expected; s++) {
             if (!seen_seqs.count(s)) {
                 missing++;
                 if (missing <= 10)

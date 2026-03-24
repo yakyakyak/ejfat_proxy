@@ -6,10 +6,14 @@
 #
 # Requires:
 #   - INSTANCE_URI file in current directory (created by minimal_reserve.sh)
-#   - SENDER_NODE  : hostname of N1 (pipeline_sender)
-#   - SENDER_ZMQ_PORT (default: 5556)
-#   - PROXY_IMAGE  : container image with zmq_ejfat_bridge binary
-#     (default: ejfat-zmq-proxy:latest)
+#   - SENDER_NODE      : hostname of ZMQ sender 1 (required)
+#   - SENDER_ZMQ_PORT  : port for sender 1 (default: 5556)
+#   - SENDER_NODE2     : hostname of ZMQ sender 2 (optional; enables second queue)
+#   - SENDER_ZMQ_PORT2 : port for sender 2 (default: 5557)
+#   - BRIDGE_DATA_ID   : E2SAR data ID (default: 1)
+#   - BRIDGE_SRC_ID    : E2SAR source ID (default: 2)
+#   - BRIDGE_LOG       : log file name (default: bridge.log)
+#   - PROXY_IMAGE      : container image (default: ejfat-zmq-proxy:latest)
 
 set -euo pipefail
 
@@ -18,6 +22,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_IMAGE="${PROXY_IMAGE:-ejfat-zmq-proxy:latest}"
 BRIDGE_BIN="/build/ejfat_zmq_proxy/build/bin/zmq_ejfat_bridge"
 SENDER_ZMQ_PORT="${SENDER_ZMQ_PORT:-5556}"
+SENDER_ZMQ_PORT2="${SENDER_ZMQ_PORT2:-5557}"
+BRIDGE_DATA_ID="${BRIDGE_DATA_ID:-1}"
+BRIDGE_SRC_ID="${BRIDGE_SRC_ID:-2}"
+BRIDGE_LOG="${BRIDGE_LOG:-bridge.log}"
 
 echo "========================================="
 echo "ZMQ->EJFAT Bridge Startup"
@@ -52,7 +60,13 @@ if [[ -z "${SENDER_NODE:-}" ]]; then
 fi
 
 ZMQ_ENDPOINT="tcp://${SENDER_NODE}:${SENDER_ZMQ_PORT}"
-echo "ZMQ PULL   : $ZMQ_ENDPOINT"
+echo "ZMQ PULL[0]: $ZMQ_ENDPOINT"
+if [[ -n "${SENDER_NODE2:-}" ]]; then
+    ZMQ_ENDPOINT2="tcp://${SENDER_NODE2}:${SENDER_ZMQ_PORT2}"
+    echo "ZMQ PULL[1]: $ZMQ_ENDPOINT2"
+fi
+echo "Data ID    : $BRIDGE_DATA_ID"
+echo "Src ID     : $BRIDGE_SRC_ID"
 echo "Image      : $PROXY_IMAGE"
 
 # Auto-detect sender IP (HSN IP used for UDP sending) so the LB CP
@@ -66,6 +80,11 @@ echo ""
 echo "Starting bridge..."
 echo ""
 
+EXTRA_ENDPOINTS=()
+if [[ -n "${SENDER_NODE2:-}" ]]; then
+    EXTRA_ENDPOINTS=(--zmq-endpoint "$ZMQ_ENDPOINT2")
+fi
+
 podman-hpc run --rm --network host \
     -v "$(pwd):/job:ro" \
     -e "EJFAT_URI=${EJFAT_URI}" \
@@ -73,12 +92,13 @@ podman-hpc run --rm --network host \
     "$BRIDGE_BIN" \
         --uri "$EJFAT_URI" \
         --zmq-endpoint "$ZMQ_ENDPOINT" \
-        --data-id 1 \
-        --src-id 2 \
+        "${EXTRA_ENDPOINTS[@]}" \
+        --data-id "$BRIDGE_DATA_ID" \
+        --src-id "$BRIDGE_SRC_ID" \
         --mtu 9000 \
         --sockets 16 \
         ${SENDER_IP:+--sender-ip "$SENDER_IP"} \
-    2>&1 | tee bridge.log
+    2>&1 | tee "$BRIDGE_LOG"
 
 EXIT_CODE=${PIPESTATUS[0]}
 echo ""

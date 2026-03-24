@@ -2,7 +2,7 @@
  * pipeline_sender - ZMQ PUSH sender with verifiable sequence-numbered messages
  *
  * Message format (compatible with pipeline_validator):
- *   bytes 0-7 : uint64 big-endian sequence number (starts at 0)
+ *   bytes 0-7 : uint64 big-endian sequence number (starts at --start-seq, default 0)
  *   bytes 8+  : fill pattern where each byte == (seq_num & 0xFF)
  *
  * Used as N1 in the pipeline test:
@@ -48,7 +48,9 @@ int main(int argc, char* argv[]) {
         ("rate,r",     po::value<int>()->default_value(100),
                        "Messages per second (0=unlimited)")
         ("hwm",        po::value<int>()->default_value(10000),
-                       "ZMQ send HWM");
+                       "ZMQ send HWM")
+        ("start-seq",  po::value<uint64_t>()->default_value(0),
+                       "First sequence number to send (for multi-source tests)");
 
     po::variables_map vm;
     try {
@@ -70,8 +72,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const uint64_t count    = vm["count"].as<uint64_t>();
-    const int      rate     = vm["rate"].as<int>();
+    const uint64_t count     = vm["count"].as<uint64_t>();
+    const int      rate      = vm["rate"].as<int>();
+    const uint64_t start_seq = vm["start-seq"].as<uint64_t>();
     const bool     unlimited = (count == 0);
 
     std::signal(SIGINT,  signalHandler);
@@ -93,6 +96,7 @@ int main(int argc, char* argv[]) {
     std::cout << "  Message size : " << msg_size << " bytes" << std::endl;
     std::cout << "  Count        : " << (unlimited ? "unlimited" : std::to_string(count)) << std::endl;
     std::cout << "  Rate         : " << (rate == 0 ? "unlimited" : std::to_string(rate) + " msg/s") << std::endl;
+    std::cout << "  Start seq    : " << start_seq << std::endl;
     std::cout << "Waiting 1s for downstream connections..." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(1));
     std::cout << "Sending...\n" << std::endl;
@@ -102,7 +106,7 @@ int main(int argc, char* argv[]) {
     auto     next_send = start;
 
     while (!g_stop.load() && (unlimited || sent < count)) {
-        uint64_t seq       = sent;
+        uint64_t seq       = start_seq + sent;
         uint64_t seq_be    = to_be64(seq);
         uint8_t  fill_byte = static_cast<uint8_t>(seq & 0xFF);
 

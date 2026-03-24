@@ -3,10 +3,11 @@
 #
 # Requires:
 #   - SENDER_ZMQ_PORT (default: 5556)
+#   - SENDER_LOG      : log file name (default: sender.log)
 #   - PROXY_IMAGE     : container image (default: ejfat-zmq-proxy:latest)
 #
 # Options passed through to pipeline_sender:
-#   --count N, --size N, --rate N
+#   --count N, --size N, --rate N, --start-seq N
 
 set -euo pipefail
 
@@ -16,6 +17,7 @@ DELAY_BEFORE_SEND="${DELAY_BEFORE_SEND:-5}"
 SENDER_ARGS=("$@")
 
 SENDER_ZMQ_PORT="${SENDER_ZMQ_PORT:-5556}"
+SENDER_LOG="${SENDER_LOG:-sender.log}"
 PROXY_IMAGE="${PROXY_IMAGE:-ejfat-zmq-proxy:latest}"
 SENDER_BIN="/build/ejfat_zmq_proxy/build/bin/pipeline_sender"
 
@@ -40,7 +42,7 @@ podman-hpc run --rm --network host \
     "$SENDER_BIN" \
         --endpoint "$ZMQ_ENDPOINT" \
         "${SENDER_ARGS[@]}" \
-    2>&1 | tee sender.log
+    2>&1 | tee "$SENDER_LOG"
 
 EXIT_CODE=${PIPESTATUS[0]}
 echo ""

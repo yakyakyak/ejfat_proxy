@@ -96,7 +96,7 @@ if [[ -z "$ACCOUNT" ]]; then
     exit 1
 fi
 
-VALID_TYPES="normal backpressure pipeline backpressure-suite bp1 bp2 bp3 bp4 bp5 bp6"
+VALID_TYPES="normal backpressure pipeline pipeline-4 backpressure-suite bp1 bp2 bp3 bp4 bp5 bp6"
 if ! echo "$VALID_TYPES" | grep -qw "$TEST_TYPE"; then
     echo "ERROR: --test-type must be one of: $VALID_TYPES"
     exit 1
@@ -181,6 +181,8 @@ else
     if [[ "$TEST_TYPE" == "backpressure" ]]; then
         TEST_SCRIPT="$SCRIPT_DIR/perlmutter_backpressure_test.sh"
         SENDER_ARGS+=("--consumer-delay" "$CONSUMER_DELAY")
+    elif [[ "$TEST_TYPE" == "pipeline-4" ]]; then
+        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test_4node.sh"
     elif [[ "$TEST_TYPE" == "pipeline" ]]; then
         TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test.sh"
     else
