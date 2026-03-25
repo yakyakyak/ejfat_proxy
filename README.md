@@ -8,7 +8,7 @@ A high-performance proxy that bridges E2SAR (EJFAT) receivers with ZeroMQ consum
 
 ```
 e2sar_perf ──UDP──▶ EJFAT LB ──UDP──▶ ejfat_zmq_proxy ──ZMQ──▶ consumer(s)
-                        ▲                      │
+                        ▲                       │
                         └────── sendState ──────┘  (backpressure)
 ```
 
