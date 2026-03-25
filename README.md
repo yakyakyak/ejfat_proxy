@@ -15,7 +15,13 @@ e2sar_perf ──UDP──▶ EJFAT LB ──UDP──▶ ejfat_zmq_proxy ──
 ### Pipeline Mode (ZMQ source → EJFAT → ZMQ sink)
 
 ```
-pipeline_sender ──ZMQ──▶ zmq_ejfat_bridge ──UDP──▶ [LB] ──UDP──▶ ejfat_zmq_proxy ──ZMQ──▶ pipeline_validator
+pipeline_sender ──ZMQ──▶ zmq_ejfat_bridge
+                                │ UDP
+                                ▼
+                            [EJFAT LB]
+                                │ UDP
+                                ▼
+                         ejfat_zmq_proxy ──ZMQ──▶ pipeline_validator
 ```
 
 The bridge (N parallel ZMQ PULL workers) enqueues events into a single shared E2SAR Segmenter via `addToSendQueue()`. The LB is optional — use `--no-cp` on the bridge and `use_cp: false` in the proxy config for back-to-back local testing.
