@@ -168,7 +168,7 @@ if [[ "$TEST_TYPE" == "backpressure-suite" ]]; then
         [[ "$opt" == "-q" || "$opt" == "--qos" ]] && SUITE_ARGS+=(--qos)
         [[ "$opt" =~ ^[^-] ]] && SUITE_ARGS+=("$opt") || true
     done
-    "$SCRIPT_DIR/perlmutter_backpressure_suite.sh" "${SUITE_ARGS[@]}"
+    "$SCRIPT_DIR/backpressure_suite.sh" "${SUITE_ARGS[@]}"
     exit 0
 fi
 
@@ -179,14 +179,14 @@ if [[ "$TEST_TYPE" =~ ^bp([1-6])$ ]]; then
 else
     # Select test script for other types
     if [[ "$TEST_TYPE" == "backpressure" ]]; then
-        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_backpressure_test.sh"
+        TEST_SCRIPT="$SCRIPT_DIR/backpressure_test.sh"
         SENDER_ARGS+=("--consumer-delay" "$CONSUMER_DELAY")
     elif [[ "$TEST_TYPE" == "pipeline-4" ]]; then
-        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test_4node.sh"
+        TEST_SCRIPT="$SCRIPT_DIR/pipeline_test_4node.sh"
     elif [[ "$TEST_TYPE" == "pipeline" ]]; then
-        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_pipeline_test.sh"
+        TEST_SCRIPT="$SCRIPT_DIR/pipeline_test.sh"
     else
-        TEST_SCRIPT="$SCRIPT_DIR/perlmutter_proxy_test.sh"
+        TEST_SCRIPT="$SCRIPT_DIR/proxy_test.sh"
     fi
 fi
 

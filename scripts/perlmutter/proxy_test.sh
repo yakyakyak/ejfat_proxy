@@ -15,7 +15,7 @@
 # Usage:
 #   export EJFAT_URI="ejfats://token@lb.es.net:443/lb/xyz?..."
 #   export E2SAR_SCRIPTS_DIR="/path/to/ejfat_proxy/scripts/perlmutter"
-#   sbatch -A <account> perlmutter_proxy_test.sh [SENDER_OPTIONS]
+#   sbatch -A <account> proxy_test.sh [SENDER_OPTIONS]
 #
 # Sender options are passed to minimal_sender.sh:
 #   --rate RATE       Sending rate in Gbps (default: 1)

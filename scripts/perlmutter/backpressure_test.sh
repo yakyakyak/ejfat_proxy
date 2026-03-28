@@ -16,7 +16,7 @@
 # Usage:
 #   export EJFAT_URI="ejfats://token@lb.es.net:443/lb/xyz?..."
 #   export E2SAR_SCRIPTS_DIR="/path/to/ejfat_proxy/scripts/perlmutter"
-#   sbatch -A <account> perlmutter_backpressure_test.sh [SENDER_OPTIONS]
+#   sbatch -A <account> backpressure_test.sh [SENDER_OPTIONS]
 #
 # Sender options:
 #   --rate RATE       Sending rate in Gbps (default: 1)

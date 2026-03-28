@@ -26,19 +26,19 @@ echo ""
 # Generate config
 echo "Generating config..."
 if [[ "${B2B_MODE:-false}" == "true" ]]; then
-    "$SCRIPT_DIR/b2b_generate_config.sh" perlmutter_config.yaml
+    "$SCRIPT_DIR/b2b_generate_config.sh" proxy_config.yaml
 else
-    "$SCRIPT_DIR/generate_config.sh" perlmutter_config.yaml
+    "$SCRIPT_DIR/generate_config.sh" proxy_config.yaml
 fi
 
-if [[ ! -f perlmutter_config.yaml ]]; then
+if [[ ! -f proxy_config.yaml ]]; then
     echo "ERROR: Failed to generate config"
     exit 1
 fi
 
 echo ""
 echo "Proxy image: $PROXY_IMAGE"
-echo "Config: $(pwd)/perlmutter_config.yaml"
+echo "Config: $(pwd)/proxy_config.yaml"
 echo ""
 
 # Run proxy inside container, bind-mounting current dir (JOB_DIR) read-only for config access.
@@ -61,7 +61,7 @@ trap cleanup_podman TERM INT
 podman-hpc run --rm --network host \
     -v "$(pwd):/job:ro" \
     "$PROXY_IMAGE" \
-    "$PROXY_BIN" -c /job/perlmutter_config.yaml > proxy.log 2>&1 &
+    "$PROXY_BIN" -c /job/proxy_config.yaml > proxy.log 2>&1 &
 PODMAN_PID=$!
 
 wait "$PODMAN_PID"

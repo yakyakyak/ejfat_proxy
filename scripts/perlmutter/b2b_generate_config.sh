@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-OUTPUT_FILE="${1:-perlmutter_config.yaml}"
+OUTPUT_FILE="${1:-proxy_config.yaml}"
 
 # Find template (assume in config/ relative to submit directory)
 TEMPLATE="${SLURM_SUBMIT_DIR:-$(pwd)}/config/distributed.yaml.template"
@@ -66,7 +66,6 @@ export PID_KI="${PID_KI:-0.0}"
 export PID_KD="${PID_KD:-0.0}"
 export BUFFER_SIZE="${BUFFER_SIZE:-20000}"
 export RECV_TIMEOUT="${RECV_TIMEOUT:-100}"
-export LOG_VERBOSITY="${LOG_VERBOSITY:-2}"
 export PROGRESS_INTERVAL="${PROGRESS_INTERVAL:-10000}"
 
 # Generate config using envsubst

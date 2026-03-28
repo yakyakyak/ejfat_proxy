@@ -27,7 +27,7 @@ For B2B (no LB) tests: `b2b_backpressure_suite.sh` (no `EJFAT_URI` needed).
 ```
 scripts/perlmutter/
   submit.sh                         # Submission wrapper for all LB-mode test types
-  perlmutter_backpressure_suite.sh  # LB mode: submits bp_test1-6 as separate jobs
+  backpressure_suite.sh             # LB mode: submits bp_test1-6 as separate jobs
   b2b_backpressure_suite.sh         # B2B mode: 5 tests, no LB reservation needed
 
   # LB-mode backpressure tests (self-contained Slurm scripts)
@@ -40,9 +40,9 @@ scripts/perlmutter/
   bp_test6.sh                       # Dual-receiver fairness (fast + slow consumer)
 
   # Standalone tests
-  perlmutter_proxy_test.sh          # Normal end-to-end test
-  perlmutter_backpressure_test.sh   # Single backpressure test (configurable delay)
-  perlmutter_pipeline_test.sh       # Data-integrity pipeline test (4 nodes)
+  proxy_test.sh                     # Normal end-to-end test
+  backpressure_test.sh              # Single backpressure test (configurable delay)
+  pipeline_test.sh                  # Data-integrity pipeline test (4 nodes)
 
   # Component wrappers (called by tests, not run directly)
   run_proxy.sh                      # Starts proxy container

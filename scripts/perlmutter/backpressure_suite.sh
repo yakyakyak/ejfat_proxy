@@ -1,5 +1,5 @@
 #!/bin/bash
-# perlmutter_backpressure_suite.sh
+# backpressure_suite.sh
 #
 # Submits all 6 backpressure test jobs as separate Slurm allocations.
 # Each test gets its own 3-node job and LB reservation, so they may
@@ -16,7 +16,7 @@
 # Usage:
 #   export EJFAT_URI="ejfats://token@lb.es.net:443/lb/xyz?..."
 #   export E2SAR_SCRIPTS_DIR="/path/to/ejfat_proxy/scripts/perlmutter"
-#   ./perlmutter_backpressure_suite.sh --account <account> [--sequential]
+#   ./backpressure_suite.sh --account <account> [--sequential]
 #
 # Options:
 #   --account ACC     Slurm account (required)
