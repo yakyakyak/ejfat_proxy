@@ -75,13 +75,13 @@ ProxyConfig ProxyConfig::loadFromYaml(const std::string& filepath) {
             const auto& log = root["logging"];
             if (log["drop_warn_interval"]) config.logging.drop_warn_interval = log["drop_warn_interval"].as<uint32_t>();
             if (log["progress_interval"]) config.logging.progress_interval = log["progress_interval"].as<uint32_t>();
+            if (log["stats_interval"]) config.stats_interval = log["stats_interval"].as<int>();
         }
 
     } catch (const YAML::Exception& e) {
         throw std::runtime_error(std::string("YAML parse error: ") + e.what());
     }
 
-    config.validate();
     return config;
 }
 
@@ -133,6 +133,77 @@ void ProxyConfig::validate() const {
     std::string error_str = errors.str();
     if (!error_str.empty()) {
         throw std::runtime_error("Configuration validation failed:\n" + error_str);
+    }
+}
+
+BridgeConfig BridgeConfig::loadFromYaml(const std::string& filepath) {
+    BridgeConfig config;
+
+    try {
+        YAML::Node root = YAML::LoadFile(filepath);
+
+        if (root["bridge"]) {
+            const auto& br = root["bridge"];
+            if (br["uri"]) config.uri = br["uri"].as<std::string>();
+            if (br["data_id"]) config.data_id = br["data_id"].as<uint16_t>();
+            if (br["src_id"]) config.src_id = br["src_id"].as<uint32_t>();
+            if (br["mtu"]) config.mtu = br["mtu"].as<uint16_t>();
+            if (br["sockets"]) config.sockets = br["sockets"].as<int>();
+            if (br["workers"]) config.workers = br["workers"].as<int>();
+            if (br["rcvhwm"]) config.rcvhwm = br["rcvhwm"].as<int>();
+            if (br["stats_interval"]) config.stats_interval = br["stats_interval"].as<int>();
+            if (br["sender_ip"]) config.sender_ip = br["sender_ip"].as<std::string>();
+            if (br["no_cp"]) config.no_cp = br["no_cp"].as<bool>();
+            if (br["multiport"]) config.multiport = br["multiport"].as<bool>();
+
+            // zmq_endpoints is a YAML sequence
+            if (br["zmq_endpoints"]) {
+                const auto& eps = br["zmq_endpoints"];
+                if (eps.IsSequence() && eps.size() > 0) {
+                    config.zmq_endpoints.clear();
+                    for (const auto& ep : eps) {
+                        config.zmq_endpoints.push_back(ep.as<std::string>());
+                    }
+                }
+            }
+        }
+
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error(std::string("YAML parse error: ") + e.what());
+    }
+
+    return config;
+}
+
+BridgeConfig BridgeConfig::getDefault() {
+    return BridgeConfig{};
+}
+
+void BridgeConfig::validate() const {
+    std::ostringstream errors;
+
+    if (mtu < 576) {
+        errors << "bridge.mtu must be >= 576, got " << mtu << "\n";
+    }
+    if (sockets < 1 || sockets > 128) {
+        errors << "bridge.sockets must be in range [1, 128], got " << sockets << "\n";
+    }
+    if (workers < 1 || workers > 128) {
+        errors << "bridge.workers must be in range [1, 128], got " << workers << "\n";
+    }
+    if (rcvhwm < 1 || rcvhwm > 1000000) {
+        errors << "bridge.rcvhwm must be in range [1, 1000000], got " << rcvhwm << "\n";
+    }
+    if (stats_interval < 0) {
+        errors << "bridge.stats_interval must be >= 0, got " << stats_interval << "\n";
+    }
+    if (zmq_endpoints.empty()) {
+        errors << "bridge.zmq_endpoints must not be empty\n";
+    }
+
+    std::string error_str = errors.str();
+    if (!error_str.empty()) {
+        throw std::runtime_error("Bridge configuration validation failed:\n" + error_str);
     }
 }
 

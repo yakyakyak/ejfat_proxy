@@ -2,6 +2,7 @@
 
 #include <string>
 #include <cstdint>
+#include <vector>
 
 namespace ejfat_zmq_proxy {
 
@@ -67,9 +68,29 @@ struct ProxyConfig {
     BackpressureConfig backpressure;
     BufferConfig buffer;
     LoggingConfig logging;
+    int stats_interval{10};  // Stats print interval in seconds (0 = disabled)
 
     static ProxyConfig loadFromYaml(const std::string& filepath);
     static ProxyConfig getDefault();
+    void validate() const;
+};
+
+struct BridgeConfig {
+    std::string uri;
+    std::vector<std::string> zmq_endpoints{"tcp://localhost:5556"};
+    uint16_t data_id{1};
+    uint32_t src_id{1};
+    uint16_t mtu{9000};
+    int sockets{16};
+    int workers{1};
+    int rcvhwm{10000};
+    int stats_interval{10};  // Stats print interval in seconds (0 = disabled)
+    std::string sender_ip;   // Empty = auto-detect
+    bool no_cp{false};
+    bool multiport{false};
+
+    static BridgeConfig loadFromYaml(const std::string& filepath);
+    static BridgeConfig getDefault();
     void validate() const;
 };
 

@@ -36,6 +36,7 @@
 #include "e2sar.hpp"
 #include "e2sarDPSegmenter.hpp"
 #include "e2sarCP.hpp"
+#include "ejfat_zmq_proxy/config.hpp"
 #include <zmq.hpp>
 #include <boost/program_options.hpp>
 #include <boost/any.hpp>
@@ -140,65 +141,139 @@ void workerLoop(
 }
 
 int main(int argc, char* argv[]) {
-    po::options_description desc("ZMQ to EJFAT Bridge");
-    desc.add_options()
-        ("help,h",   "Show this help")
-        ("uri,u",    po::value<std::string>()->required(),
-                     "EJFAT instance URI")
-        ("zmq-endpoint,e",
-                     po::value<std::vector<std::string>>()->composing()
-                         ->default_value(std::vector<std::string>{"tcp://localhost:5556"},
-                                         "tcp://localhost:5556"),
-                     "ZMQ PULL endpoint to connect to (repeat for multiple queues)")
-        ("data-id,d", po::value<uint16_t>()->default_value(1),
-                     "E2SAR data ID carried in RE header")
-        ("src-id,s", po::value<uint32_t>()->default_value(1),
-                     "E2SAR event source ID carried in Sync header")
-        ("mtu,m",    po::value<uint16_t>()->default_value(9000),
-                     "MTU in bytes")
-        ("sockets",  po::value<int>()->default_value(16),
-                     "Number of UDP send sockets (E2SAR internal thread pool size)")
-        ("workers",  po::value<int>()->default_value(1),
-                     "Number of parallel ZMQ PULL receiver threads")
-        ("rcvhwm",   po::value<int>()->default_value(10000),
-                     "ZMQ receive HWM (per worker socket)")
-        ("stats-interval", po::value<int>()->default_value(10),
-                     "Stats print interval in seconds (0=disable)")
-        ("sender-ip", po::value<std::string>()->default_value(""),
-                     "Explicit sender IP to register with LB CP (default: auto-detect)")
-        ("no-cp",    po::bool_switch()->default_value(false),
-                     "Disable control plane (for B2B/local testing)")
-        ("multiport", po::bool_switch()->default_value(false),
-                     "Use consecutive destination ports for B2B multi-thread testing");
+    // Required parameters (no defaults)
+    po::options_description required("Required");
+    required.add_options()
+        ("uri,u",    po::value<std::string>(),
+                     "EJFAT instance URI — must be set here or via --config\n"
+                     "  e.g. ejfat://token@lb.es.net:443/lb/xyz"
+                     "?data=10.0.0.1&sync=10.0.0.1:19522");
+
+    // All other options have built-in defaults
+    po::options_description opts("Options");
+    opts.add_options()
+        ("help,h",         "Show this help")
+        ("config,c",       po::value<std::string>(),
+                           "Configuration file (YAML); CLI flags override YAML values")
+        ("zmq-endpoint,e", po::value<std::vector<std::string>>()->composing(),
+                           "ZMQ PULL endpoint (repeat for multiple; overrides config list)\n"
+                           "  [default: tcp://localhost:5556]")
+        ("data-id,d",      po::value<uint16_t>(),
+                           "E2SAR data ID in the Reassembly Header [default: 1]")
+        ("src-id,s",       po::value<uint32_t>(),
+                           "E2SAR source ID in the Sync header [default: 1]")
+        ("mtu,m",          po::value<uint16_t>(),
+                           "MTU in bytes — use 1500 for localhost, 9000 for jumbo [default: 9000]")
+        ("sockets",        po::value<int>(),
+                           "UDP send sockets (E2SAR internal thread pool size) [default: 16]")
+        ("workers",        po::value<int>(),
+                           "ZMQ PULL receiver threads per endpoint [default: 1]")
+        ("rcvhwm",         po::value<int>(),
+                           "ZMQ receive high-water mark per worker socket [default: 10000]")
+        ("stats-interval", po::value<int>(),
+                           "Stats print interval in seconds [default: 10, 0=disable]")
+        ("sender-ip",      po::value<std::string>(),
+                           "Sender IP to register with LB CP [default: auto-detect]")
+        ("no-cp",          po::bool_switch()->default_value(false),
+                           "Disable control plane for B2B/local testing [default: false]")
+        ("multiport",      po::bool_switch()->default_value(false),
+                           "Use consecutive destination ports for B2B multi-thread testing [default: false]");
+
+    po::options_description all;
+    all.add(required).add(opts);
 
     po::variables_map vm;
     try {
-        po::store(po::parse_command_line(argc, argv, desc), vm);
+        po::store(po::parse_command_line(argc, argv, all), vm);
         if (vm.count("help")) {
-            std::cout << desc << std::endl;
+            std::cout << all << "\n";
+            std::cout << R"(
+Examples:
+
+  Back-to-back (no load balancer) — run alongside ejfat_zmq_proxy on localhost:
+    zmq_ejfat_bridge --no-cp \
+      --uri "ejfat://unused@127.0.0.1:9876/lb/1?data=127.0.0.1:19522&sync=127.0.0.1:19523" \
+      --zmq-endpoint tcp://sender-host:5556 \
+      --mtu 1500
+
+    Use the same URI on the proxy side (--use-cp=false --with-lb-header=true).
+    The URI ?data= address is where the proxy's Reassembler listens — the bridge
+    sends UDP there. Use --mtu 1500 for localhost; 9000 for jumbo-frame networks.
+
+  With a real load balancer:
+    zmq_ejfat_bridge \
+      --uri "ejfats://token@lb.es.net:443/lb/session?data=10.0.0.1&sync=10.0.0.1:19522" \
+      --zmq-endpoint tcp://sender-host:5556
+
+    Multiple ZMQ senders (each --zmq-endpoint spawns --workers pull threads):
+    zmq_ejfat_bridge \
+      --uri "ejfats://token@lb.es.net:443/lb/session?data=10.0.0.1&sync=10.0.0.1:19522" \
+      --zmq-endpoint tcp://sender-a:5556 \
+      --zmq-endpoint tcp://sender-b:5557 \
+      --workers 2 --sockets 16
+
+  Via YAML config file (all options above can be set in the file; CLI overrides YAML):
+    zmq_ejfat_bridge --config /path/to/bridge.yaml
+    zmq_ejfat_bridge --config /path/to/bridge.yaml --mtu 1500
+)" << std::endl;
             return 0;
         }
         po::notify(vm);
     } catch (const po::error& e) {
         std::cerr << "ERROR: " << e.what() << std::endl;
-        std::cerr << desc << std::endl;
+        std::cerr << all << std::endl;
+        return 1;
+    }
+
+    // Load config from YAML if provided, then apply CLI overrides
+    ejfat_zmq_proxy::BridgeConfig config;
+    if (vm.count("config")) {
+        std::string config_file = vm["config"].as<std::string>();
+        std::cout << "Loading configuration from: " << config_file << std::endl;
+        try {
+            config = ejfat_zmq_proxy::BridgeConfig::loadFromYaml(config_file);
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR: " << e.what() << std::endl;
+            return 1;
+        }
+    } else {
+        config = ejfat_zmq_proxy::BridgeConfig::getDefault();
+    }
+
+    // Apply CLI overrides (vm.count > 0 only when the user explicitly passed the flag)
+    if (vm.count("uri"))            config.uri           = vm["uri"].as<std::string>();
+    if (vm.count("zmq-endpoint"))   config.zmq_endpoints = vm["zmq-endpoint"].as<std::vector<std::string>>();
+    if (vm.count("data-id"))        config.data_id       = vm["data-id"].as<uint16_t>();
+    if (vm.count("src-id"))         config.src_id        = vm["src-id"].as<uint32_t>();
+    if (vm.count("mtu"))            config.mtu           = vm["mtu"].as<uint16_t>();
+    if (vm.count("sockets"))        config.sockets       = vm["sockets"].as<int>();
+    if (vm.count("workers"))        config.workers       = vm["workers"].as<int>();
+    if (vm.count("rcvhwm"))         config.rcvhwm        = vm["rcvhwm"].as<int>();
+    if (vm.count("stats-interval")) config.stats_interval = vm["stats-interval"].as<int>();
+    if (vm.count("sender-ip"))      config.sender_ip     = vm["sender-ip"].as<std::string>();
+    // bool_switch: present means true; absent preserves YAML/default value
+    if (vm["no-cp"].as<bool>())     config.no_cp         = true;
+    if (vm["multiport"].as<bool>()) config.multiport     = true;
+
+    if (config.uri.empty()) {
+        std::cerr << "ERROR: EJFAT URI not specified (use --uri or set bridge.uri in config file)" << std::endl;
+        return 1;
+    }
+    try {
+        config.validate();
+    } catch (const std::exception& e) {
+        std::cerr << "ERROR: " << e.what() << std::endl;
         return 1;
     }
 
     std::signal(SIGINT,  signalHandler);
     std::signal(SIGTERM, signalHandler);
 
-    const bool no_cp = vm["no-cp"].as<bool>();
-    const int  workers_per_ep = vm["workers"].as<int>();
-    const auto& endpoints = vm["zmq-endpoint"].as<std::vector<std::string>>();
+    e2sar::EjfatURI uri(config.uri, e2sar::EjfatURI::TokenType::instance);
 
-    e2sar::EjfatURI uri(vm["uri"].as<std::string>(),
-                        e2sar::EjfatURI::TokenType::instance);
-
-    if (!no_cp) {
+    if (!config.no_cp) {
         e2sar::LBManager lb_mgr(uri, false, false);
-        const std::string sender_ip = vm["sender-ip"].as<std::string>();
-        if (sender_ip.empty()) {
+        if (config.sender_ip.empty()) {
             auto reg = lb_mgr.addSenderSelf(false);
             if (reg.has_error()) {
                 std::cerr << "WARNING: addSenderSelf failed: "
@@ -207,12 +282,12 @@ int main(int argc, char* argv[]) {
                 std::cout << "Registered as sender with LB CP (auto-detected IP)" << std::endl;
             }
         } else {
-            auto reg = lb_mgr.addSenders(std::vector<std::string>{sender_ip});
+            auto reg = lb_mgr.addSenders(std::vector<std::string>{config.sender_ip});
             if (reg.has_error()) {
-                std::cerr << "WARNING: addSenders(" << sender_ip << ") failed: "
+                std::cerr << "WARNING: addSenders(" << config.sender_ip << ") failed: "
                           << reg.error().message() << " (proceeding anyway)" << std::endl;
             } else {
-                std::cout << "Registered as sender with LB CP: " << sender_ip << std::endl;
+                std::cout << "Registered as sender with LB CP: " << config.sender_ip << std::endl;
             }
         }
     }
@@ -220,16 +295,16 @@ int main(int argc, char* argv[]) {
     // Single Segmenter shared by all worker threads.
     // numSendSockets controls the internal UDP send thread pool size.
     e2sar::Segmenter::SegmenterFlags sflags;
-    sflags.useCP          = !no_cp;
-    sflags.mtu            = vm["mtu"].as<uint16_t>();
-    sflags.numSendSockets = static_cast<size_t>(vm["sockets"].as<int>());
-    sflags.warmUpMs       = no_cp ? 0 : 500;
-    sflags.multiPort      = vm["multiport"].as<bool>();
+    sflags.useCP          = !config.no_cp;
+    sflags.mtu            = config.mtu;
+    sflags.numSendSockets = static_cast<size_t>(config.sockets);
+    sflags.warmUpMs       = config.no_cp ? 0 : 500;
+    sflags.multiPort      = config.multiport;
 
     e2sar::Segmenter segmenter(
         uri,
-        vm["data-id"].as<uint16_t>(),
-        vm["src-id"].as<uint32_t>(),
+        config.data_id,
+        config.src_id,
         sflags
     );
 
@@ -239,19 +314,19 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const int total_workers = static_cast<int>(endpoints.size()) * workers_per_ep;
+    const int total_workers = static_cast<int>(config.zmq_endpoints.size()) * config.workers;
 
     std::cout << "ZMQ EJFAT Bridge started" << std::endl;
-    for (size_t i = 0; i < endpoints.size(); i++)
-        std::cout << "  ZMQ endpoint[" << i << "]: " << endpoints[i] << std::endl;
-    std::cout << "  Data ID      : " << vm["data-id"].as<uint16_t>()         << std::endl;
-    std::cout << "  Src ID       : " << vm["src-id"].as<uint32_t>()          << std::endl;
-    std::cout << "  MTU          : " << vm["mtu"].as<uint16_t>()             << std::endl;
-    std::cout << "  Sockets      : " << vm["sockets"].as<int>()
-              << " (E2SAR UDP send thread pool)"                             << std::endl;
+    for (size_t i = 0; i < config.zmq_endpoints.size(); i++)
+        std::cout << "  ZMQ endpoint[" << i << "]: " << config.zmq_endpoints[i] << std::endl;
+    std::cout << "  Data ID      : " << config.data_id                              << std::endl;
+    std::cout << "  Src ID       : " << config.src_id                               << std::endl;
+    std::cout << "  MTU          : " << config.mtu                                  << std::endl;
+    std::cout << "  Sockets      : " << config.sockets
+              << " (E2SAR UDP send thread pool)"                                     << std::endl;
     std::cout << "  Workers      : " << total_workers
-              << " (" << endpoints.size() << " endpoints x "
-              << workers_per_ep << " workers each)"                          << std::endl;
+              << " (" << config.zmq_endpoints.size() << " endpoints x "
+              << config.workers << " workers each)"                                  << std::endl;
     std::cout << std::endl;
 
     WorkerStats stats;
@@ -259,15 +334,15 @@ int main(int argc, char* argv[]) {
     workers.reserve(total_workers);
 
     int worker_id = 0;
-    for (const auto& ep : endpoints) {
-        for (int w = 0; w < workers_per_ep; w++) {
+    for (const auto& ep : config.zmq_endpoints) {
+        for (int w = 0; w < config.workers; w++) {
             workers.emplace_back(
                 workerLoop,
                 worker_id++,
                 ep,
-                vm["rcvhwm"].as<int>(),
+                config.rcvhwm,
                 std::ref(segmenter),
-                vm["stats-interval"].as<int>(),
+                config.stats_interval,
                 std::ref(stats)
             );
         }
@@ -281,13 +356,13 @@ int main(int argc, char* argv[]) {
     auto sendStats = segmenter.getSendStats();
 
     std::cout << "\n=== Bridge Statistics ===" << std::endl;
-    std::cout << "Endpoints                 : " << endpoints.size()          << std::endl;
-    std::cout << "Workers                   : " << total_workers             << std::endl;
-    std::cout << "Events received from ZMQ  : " << stats.received.load()   << std::endl;
-    std::cout << "Events enqueued to E2SAR  : " << stats.sent.load()       << std::endl;
-    std::cout << "Events dropped (q full)   : " << stats.dropped.load()    << std::endl;
-    std::cout << "Segmenter fragments sent  : " << sendStats.msgCnt        << std::endl;
-    std::cout << "Segmenter send errors     : " << sendStats.errCnt        << std::endl;
+    std::cout << "Endpoints                 : " << config.zmq_endpoints.size()   << std::endl;
+    std::cout << "Workers                   : " << total_workers                  << std::endl;
+    std::cout << "Events received from ZMQ  : " << stats.received.load()         << std::endl;
+    std::cout << "Events enqueued to E2SAR  : " << stats.sent.load()             << std::endl;
+    std::cout << "Events dropped (q full)   : " << stats.dropped.load()          << std::endl;
+    std::cout << "Segmenter fragments sent  : " << sendStats.msgCnt              << std::endl;
+    std::cout << "Segmenter send errors     : " << sendStats.errCnt              << std::endl;
     std::cout << "=========================" << std::endl;
 
     return (stats.dropped.load() > 0) ? 2 : 0;
