@@ -1,8 +1,8 @@
 # Configuration Reference
 
 Environment variables used to configure `ejfat_zmq_proxy` on Perlmutter.
-The proxy reads `perlmutter_config.yaml`, generated automatically by
-`generate_config.sh` from `config/perlmutter.yaml.template`. All settings
+The proxy reads `proxy_config.yaml`, generated automatically by
+`generate_config.sh` from `config/distributed.yaml.template`. All settings
 can be overridden via environment variables before starting the proxy.
 
 For implementation details, see [CONFIG_UPDATE.md](CONFIG_UPDATE.md).
@@ -15,7 +15,6 @@ For implementation details, see [CONFIG_UPDATE.md](CONFIG_UPDATE.md).
 | `DATA_IP` | auto-detected | IP address for receiving LB data |
 | `DATA_PORT` | 10000 | UDP port for LB data plane |
 | `VALIDATE_CERT` | true | Validate LB TLS certificate |
-| `USE_IPV6` | false | Use IPv6 for data plane |
 | `RECV_THREADS` | 4 | E2SAR receiver threads |
 | `RCV_BUF_SIZE` | 10485760 | UDP socket receive buffer (bytes) |
 

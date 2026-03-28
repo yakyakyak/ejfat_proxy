@@ -80,7 +80,7 @@ sbatch -A m5219 scripts/perlmutter/bp_test3.sh
 
 ### Normal Test (`--test-type normal`)
 
-**Script**: `perlmutter_proxy_test.sh` | **Nodes**: 3 | **Time**: 30 min
+**Script**: `proxy_test.sh` | **Nodes**: 3 | **Time**: 30 min
 
 Basic end-to-end test: sender pushes events through the EJFAT LB, the proxy
 reassembles and forwards them to a ZMQ consumer.
@@ -101,7 +101,7 @@ reassembles and forwards them to a ZMQ consumer.
 
 ### Backpressure Test (`--test-type backpressure`)
 
-**Script**: `perlmutter_backpressure_test.sh` | **Nodes**: 3 | **Time**: 30 min
+**Script**: `backpressure_test.sh` | **Nodes**: 3 | **Time**: 30 min
 
 Same as normal test but the consumer adds an artificial delay (default 10ms per
 message). This causes ZMQ send buffers to fill, the proxy ring buffer to fill,
@@ -113,7 +113,7 @@ and backpressure signals to be sent to the LB.
 
 ### Pipeline Test (`--test-type pipeline`)
 
-**Script**: `perlmutter_pipeline_test.sh` | **Nodes**: 4 | **Time**: 30 min
+**Script**: `pipeline_test.sh` | **Nodes**: 4 | **Time**: 30 min
 
 Full end-to-end data integrity test with sequence number and checksum validation:
 
@@ -154,10 +154,10 @@ LB reservation. Every test has explicit pass/fail assertions.
 ./scripts/perlmutter/submit.sh --account m5219 --test-type backpressure-suite
 
 # All 6 tests sequentially (each waits for the previous to finish)
-./scripts/perlmutter/perlmutter_backpressure_suite.sh --account m5219 --sequential
+./scripts/perlmutter/backpressure_suite.sh --account m5219 --sequential
 
 # Specific tests only
-./scripts/perlmutter/perlmutter_backpressure_suite.sh --account m5219 --tests 1,3,6
+./scripts/perlmutter/backpressure_suite.sh --account m5219 --tests 1,3,6
 
 # Individual test
 ./scripts/perlmutter/submit.sh --account m5219 --test-type bp3
@@ -309,7 +309,7 @@ All logs are saved to `runs/slurm_job_<JOBID>/`:
 | `proxy.log` | Proxy stats: events received, fill level, backpressure state |
 | `consumer.log` | Consumer stats: message count, throughput |
 | `minimal_sender.log` | Sender output: events sent, rate achieved |
-| `perlmutter_config.yaml` | Generated proxy configuration |
+| `proxy_config.yaml` | Generated proxy configuration |
 | `proxy_wrapper.log` | run_proxy.sh startup output |
 | `consumer_wrapper.log` | run_consumer.sh startup output |
 | `INSTANCE_URI` | LB reservation details |
@@ -334,4 +334,4 @@ cd runs/slurm_job_<JOBID>
 2. Source `bp_common.sh` and call `bp_setup_env`, `bp_reserve_lb`, `start_coordinator`.
 3. Use `start_proxy 1 "CONFIG_VARS..."` — always test number 1 (coordinator gets `NUM_TESTS=1`).
 4. Run assertions, call `bp_print_summary`.
-5. Add the test number to `submit.sh` and `perlmutter_backpressure_suite.sh`.
+5. Add the test number to `submit.sh` and `backpressure_suite.sh`.

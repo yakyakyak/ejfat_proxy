@@ -144,6 +144,6 @@ docker ps | grep ejfat
 | `scripts/MacOS/local_pipeline_test.sh` | Primary structure template for pipeline test |
 | `scripts/MacOS/test_receiver.py` | Python consumer (bind-mounted into container) |
 | `scripts/perlmutter/bp_common.sh` | Assertion library (sourced unchanged) |
-| `config/perlmutter_b2b.yaml.template` | Config template (used via envsubst) |
+| `config/distributed.yaml.template` | Config template (used via envsubst) |
 | `Containerfile` | Container image layout, binary paths |
 | `scripts/perlmutter/run_proxy.sh` | Reference for container execution pattern |

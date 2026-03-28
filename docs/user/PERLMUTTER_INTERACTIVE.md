@@ -1,8 +1,7 @@
 # Perlmutter Interactive / Login-Node Workflow
 
 Running each pipeline component manually in a separate terminal via SSH, rather
-than through `srun`. For the simpler `srun`-based approach, see
-[PERLMUTTER_QUICKSTART.md](PERLMUTTER_QUICKSTART.md).
+than through `srun`.
 
 You still need a Slurm allocation so that the containers can access the HSN
 network; the difference is that you SSH directly to each node and run the
@@ -65,7 +64,7 @@ export ZMQ_PORT=5555
 /path/to/scripts/perlmutter/run_proxy.sh
 ```
 
-The proxy generates `perlmutter_config.yaml`, starts the container, and prints:
+The proxy generates `proxy_config.yaml`, starts the container, and prints:
 
 ```
 Worker registered

@@ -11,7 +11,7 @@ All tests below run entirely on localhost (127.0.0.1) without a real EJFAT load 
 
 ## Configuration
 
-Local testing uses `config/local_test.yaml` or generates a config on the fly via `perlmutter_b2b.yaml.template`.
+Local testing uses `config/local_test.yaml` or generates a config on the fly via `config/distributed.yaml.template`.
 
 Key settings for local mode:
 
@@ -146,7 +146,9 @@ Pass/fail is determined by the validator exit code (0=PASS, 1=errors, 2=timeout)
 
 ## zmq_ejfat_bridge — Local Usage
 
-The bridge has a `--no-cp` flag for local and B2B testing:
+The bridge has a `--no-cp` flag for local and B2B testing. Configuration can be
+provided via CLI flags or via a YAML config file (`--config/-c`, using the `bridge:`
+key as documented in `config/default_bridge.yaml`). CLI flags override YAML values.
 
 ```bash
 ./build/bin/zmq_ejfat_bridge \
@@ -158,7 +160,14 @@ The bridge has a `--no-cp` flag for local and B2B testing:
   --no-cp
 ```
 
+Or via config file:
+
+```bash
+./build/bin/zmq_ejfat_bridge --config config/default_bridge.yaml --no-cp
+```
+
 - **`--no-cp`**: disables gRPC LB registration and sync packets
+- **`--config/-c`**: load all options from a YAML file (CLI flags override)
 - **`--workers N`**: N parallel ZMQ PULL threads, each with its own socket (default: 1)
 - **`--sockets N`**: E2SAR internal UDP send thread pool size (default: 16; use 1 for local)
 

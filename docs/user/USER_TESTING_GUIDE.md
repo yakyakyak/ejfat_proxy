@@ -6,17 +6,22 @@ Perlmutter.
 ## Architecture
 
 ```
-                         EJFAT Load Balancer
-                        /         |          \
-                       /          |           \
- e2sar_perf  ───UDP──▶    data plane    ──UDP──▶  ejfat_zmq_proxy ──ZMQ──▶  consumer(s)
-   (sender)            \          |           /       (proxy)              (ZMQ PULL)
-                        \  control plane  ◀──/
-                         (backpressure)
+Full Pipeline (Linear View)
+ZMQ Source  ──────ZMQ──────▶  zmq_ejfat_bridge  ──────────────┐
+(PUSH, bind :5556)            (PULL, connect :5556)           │ UDP
+                                                              │ :19522
+                                                          EJFAT LB
+                                                        (data plane)
+                                                              │ UDP
+                                                              ▼
+ZMQ Consumer  ◀──────ZMQ──────  ejfat_zmq_proxy  ◀────────────┘
+(PULL, connect :5555)           (PUSH, bind :5555)
 ```
 
-The proxy receives reassembled events from the EJFAT load balancer via E2SAR,
-buffers them in a lock-free ring buffer, and pushes them out over a ZMQ PUSH
+In the full pipeline, a ZMQ source pushes events to `zmq_ejfat_bridge`, which
+segments and forwards them over UDP to the EJFAT load balancer. The LB
+distributes reassembled events to `ejfat_zmq_proxy` via E2SAR. The proxy
+buffers events in a lock-free ring buffer and pushes them out over a ZMQ PUSH
 socket. Downstream consumers connect as ZMQ PULL clients. When consumers are
 slow, the proxy detects backpressure and signals the LB to throttle incoming
 data.
@@ -25,7 +30,6 @@ data.
 
 | Document | Description |
 |----------|-------------|
-| [PERLMUTTER_QUICKSTART.md](PERLMUTTER_QUICKSTART.md) | Prerequisites, container build, and step-by-step srun workflow (3 nodes) |
 | [PERLMUTTER_PIPELINE.md](PERLMUTTER_PIPELINE.md) | 4-node pipeline mode: ZMQ source → bridge → EJFAT → proxy → validator |
 | [PERLMUTTER_INTERACTIVE.md](PERLMUTTER_INTERACTIVE.md) | SSH-based interactive workflow — start each component manually in a separate terminal |
 | [CONFIGURATION.md](CONFIGURATION.md) | Full environment variable reference and backpressure tuning recipes |

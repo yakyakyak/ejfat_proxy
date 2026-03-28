@@ -99,7 +99,7 @@ PROXY_PID=$!
 ```
 
 The proxy:
-1. Generates `perlmutter_config.yaml` from the template + environment variables.
+1. Generates `proxy_config.yaml` from the template + environment variables.
 2. Starts the `ejfat_zmq_proxy` binary inside a podman container.
 3. Registers as a worker with the LB.
 4. Binds a ZMQ PUSH socket on port 5555 (default).

@@ -2,7 +2,6 @@
 
 Running the full ZMQ-source pipeline on Perlmutter: `pipeline_sender → zmq_ejfat_bridge → EJFAT LB → proxy → consumer/validator`.
 For architecture details, see [PIPELINE_GUIDE.md](PIPELINE_GUIDE.md).
-For prerequisites and proxy setup, see [PERLMUTTER_QUICKSTART.md](PERLMUTTER_QUICKSTART.md).
 
 ## Overview
 

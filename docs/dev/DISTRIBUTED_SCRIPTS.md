@@ -174,11 +174,7 @@ Phase 6: Sleep DRAIN_TIME, wait for validator to exit
 
 ## Config Generation: Unified Template
 
-The project previously had two config templates:
-- `perlmutter.yaml.template` — LB mode (`use_cp: true`, `with_lb_header: false`)
-- `perlmutter_b2b.yaml.template` — B2B mode (`use_cp: false`, `with_lb_header: true`)
-
-Rather than create a third template, the distributed scripts introduce a single unified `config/distributed.yaml.template` that parameterizes the two mode-switching fields:
+`config/distributed.yaml.template` is a single unified template that covers both LB mode and B2B mode by parameterizing the two mode-switching fields:
 
 ```yaml
 use_cp: ${USE_CP}
@@ -377,7 +373,7 @@ The critical structural difference is the absence of a shared filesystem. Every 
 
 ### No multi-test sequencing
 
-The Perlmutter backpressure suite (`perlmutter_backpressure_suite.sh`) runs 5–6 tests sequentially against different proxy configs using a persistent coordinator. The distributed scripts have no equivalent — each `run_pipeline.sh` invocation runs a single test. Multi-test sequencing could be added as a wrapper script.
+The Perlmutter backpressure suite (`backpressure_suite.sh`) runs 5–6 tests sequentially against different proxy configs using a persistent coordinator. The distributed scripts have no equivalent — each `run_pipeline.sh` invocation runs a single test. Multi-test sequencing could be added as a wrapper script.
 
 ### SENDER_IP auto-detection is heuristic
 
