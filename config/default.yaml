@@ -1,4 +1,4 @@
-# EJFAT ZMQ Proxy Configuration v2.0
+# EJFAT ZMQ Proxy Configuration v3.0
 
 ejfat:
   # EJFAT URI for the load balancer (REQUIRED when use_cp=true)
@@ -31,9 +31,6 @@ ejfat:
 
   # Validate TLS certificates
   validate_cert: true
-
-  # Use IPv6 for dataplane
-  use_ipv6: false
 
   # Scheduling parameters
   scheduling:
@@ -112,11 +109,11 @@ buffer:
   recv_timeout_ms: 100
 
 logging:
-  # Logging verbosity (0=quiet, 1=normal, 2=verbose)
-  verbosity: 1
-
   # Warn every N dropped events (0 = disable drop warnings)
   drop_warn_interval: 1000
 
   # Log progress every N received events (0 = disable progress logging)
   progress_interval: 10000
+
+  # Stats print interval in seconds (0 = disable)
+  stats_interval: 10

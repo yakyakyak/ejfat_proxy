@@ -91,6 +91,6 @@ buffer:
   recv_timeout_ms: ${RECV_TIMEOUT}
 
 logging:
-  verbosity: ${LOG_VERBOSITY}
   drop_warn_interval: 1000
   progress_interval: ${PROGRESS_INTERVAL}
+  stats_interval: 10
