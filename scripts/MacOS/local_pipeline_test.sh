@@ -72,7 +72,6 @@ PID_KI="0.0"
 PID_KD="0.0"
 BUFFER_SIZE="10000"
 RECV_TIMEOUT="100"
-LOG_VERBOSITY="1"
 PROGRESS_INTERVAL="1000"
 
 #=============================================================================

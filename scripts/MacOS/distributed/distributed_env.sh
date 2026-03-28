@@ -79,7 +79,6 @@ SLURM_JOB_ID="${SLURM_JOB_ID:-dist}"  # Used as worker name suffix (no Slurm her
 RECV_THREADS="${RECV_THREADS:-4}"
 RCV_BUF_SIZE="${RCV_BUF_SIZE:-10485760}"   # 10 MB
 VALIDATE_CERT="${VALIDATE_CERT:-false}"
-USE_IPV6="${USE_IPV6:-false}"
 ZMQ_HWM="${ZMQ_HWM:-10000}"
 ZMQ_IO_THREADS="${ZMQ_IO_THREADS:-2}"
 POLL_SLEEP="${POLL_SLEEP:-100}"            # microseconds
@@ -94,7 +93,6 @@ PID_KI="${PID_KI:-0.0}"
 PID_KD="${PID_KD:-0.0}"
 BUFFER_SIZE="${BUFFER_SIZE:-10000}"
 RECV_TIMEOUT="${RECV_TIMEOUT:-100}"        # milliseconds
-LOG_VERBOSITY="${LOG_VERBOSITY:-1}"
 PROGRESS_INTERVAL="${PROGRESS_INTERVAL:-1000}"
 
 #=============================================================================

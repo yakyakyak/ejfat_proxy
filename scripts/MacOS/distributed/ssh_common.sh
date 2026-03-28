@@ -234,11 +234,11 @@ dist_generate_config() {
 
     # Export all envsubst variables
     export EJFAT_URI USE_CP WITH_LB_HEADER DATA_IP DATA_PORT SLURM_JOB_ID ZMQ_PORT
-    export RECV_THREADS RCV_BUF_SIZE VALIDATE_CERT USE_IPV6
+    export RECV_THREADS RCV_BUF_SIZE VALIDATE_CERT
     export ZMQ_HWM ZMQ_IO_THREADS POLL_SLEEP ZMQ_SNDBUF LINGER_MS
     export BP_PERIOD READY_THRESHOLD BP_LOG_INTERVAL
     export PID_SETPOINT PID_KP PID_KI PID_KD
-    export BUFFER_SIZE RECV_TIMEOUT LOG_VERBOSITY PROGRESS_INTERVAL
+    export BUFFER_SIZE RECV_TIMEOUT PROGRESS_INTERVAL
 
     if ! command -v envsubst >/dev/null 2>&1; then
         echo "ERROR: envsubst not found. Install with: brew install gettext" >&2

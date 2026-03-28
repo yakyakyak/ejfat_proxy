@@ -96,7 +96,6 @@ export PID_KI="${PID_KI:-0.0}"
 export PID_KD="${PID_KD:-0.0}"
 export BUFFER_SIZE="${BUFFER_SIZE:-200000}"
 export RECV_TIMEOUT="${RECV_TIMEOUT:-100}"
-export LOG_VERBOSITY="${LOG_VERBOSITY:-2}"
 export PROGRESS_INTERVAL="${PROGRESS_INTERVAL:-10000}"
 
 # Generate config using envsubst
